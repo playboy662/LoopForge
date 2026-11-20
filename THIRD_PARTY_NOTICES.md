@@ -1,5 +1,36 @@
 # Third-Party Notices
 
+## ECC capability assets
+
+`deploy/catalog/ecc/upstream/` contains selected, unmodified skills and role
+references from [ECC](https://github.com/affaan-m/ECC), pinned to commit
+`3f14a103a8694e51c1df9a806217a6d0b5f7a6f7`.
+
+ECC is MIT-licensed; its original license is retained at
+`deploy/catalog/ecc/upstream/LICENSE`. File hashes and source paths are recorded
+in `deploy/catalog/ecc/upstream-lock.json`. The LoopForge role definitions and
+skill bindings are maintained separately in `deploy/catalog/ecc/catalog.json`.
+The individual files retain upstream contributor attributions.
+
+## Supplemental capability assets
+
+The following selected assets are retained with their original MIT licenses,
+source paths and SHA-256 manifests in each directory's `upstream-lock.json`:
+
+| Directory | Upstream | Pinned commit |
+| --- | --- | --- |
+| `deploy/catalog/superpowers/upstream/` | https://github.com/obra/superpowers | `22f0b463e7a5e579904dd6211a520321035526f7` |
+| `deploy/catalog/agency-agents/upstream/` | https://github.com/msitarzewski/agency-agents | `8ae6164602c95ca78828b148b9052460ee426885` |
+| `deploy/catalog/bmad/upstream/` | https://github.com/bmad-code-org/BMAD-METHOD (V6.12) | `bab9082c3e884e0d72c759bcd1a6d90bcc01be84` |
+
+These upstream files are unmodified. `deploy/catalog/supplemental.json`
+defines their LoopForge role and skill bindings. The BMAD product-brief skill
+has a separate LoopForge entrypoint at
+`deploy/catalog/bmad/skills/bmad-product-brief/SKILL.md`, which maps the original
+standalone protocol's Canvas to workspace artifacts. BMAD's trademark notice
+is retained in its original `LICENSE`; this integration does not imply
+upstream endorsement.
+
 ## Superpowers
 
 Portions of the following paths are derived from the Superpowers project:

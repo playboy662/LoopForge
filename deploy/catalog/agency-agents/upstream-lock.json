@@ -1,0 +1,31 @@
+{
+  "repository": "https://github.com/msitarzewski/agency-agents",
+  "commit": "8ae6164602c95ca78828b148b9052460ee426885",
+  "license": "MIT",
+  "files": [
+    {
+      "path": "LICENSE",
+      "sha256": "9a45258434d5cedf0af73c9ad4771373701225038d246c49219026c33677f66f",
+      "size": 1079,
+      "mode": 420
+    },
+    {
+      "path": "design/design-ui-designer.md",
+      "sha256": "4dc51255ffcb47e2bf4289a7d49a7cc224238af759f9e6e3c56771c698575d6d",
+      "size": 13436,
+      "mode": 420
+    },
+    {
+      "path": "engineering/engineering-technical-writer.md",
+      "sha256": "bf5c809977e10904b988ab8b218853ce8dfa38b2cbd89a7d2cfadba44ac25761",
+      "size": 14214,
+      "mode": 420
+    },
+    {
+      "path": "product/product-manager.md",
+      "sha256": "4a3fe4661e72e5173877bcba7c362392181774b20efc27ac1789171e98676c9d",
+      "size": 22687,
+      "mode": 420
+    }
+  ]
+}

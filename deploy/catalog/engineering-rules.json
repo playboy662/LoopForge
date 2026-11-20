@@ -1,0 +1,51 @@
+{
+  "projectId": "platform-capabilities",
+  "source": {
+    "description": "由已有平台工程约束及 PZH 后端、接口、前端规范提炼，通用要求与技术栈条件分开维护。",
+    "sourceRuleIds": ["pzh-backend-standards", "pzh-frontend-standards"],
+    "sourceContentSHA256": {
+      "pzh-backend-standards": "05777b69d11e4ce37c21766bb107fd9adef389bf583f0ab9adb383b7556f3ebf",
+      "pzh-frontend-standards": "3a295bbc37e4c72ad1b7964e1f63479b116957367bcdd9e24b2b434f0cdef774"
+    },
+    "originals": "项目专项原文继续保留在原项目；平台提炼版不包含个人路径、服务清单、部署地址或环境凭据。"
+  },
+  "rules": [
+    {
+      "id": "loopforge-shared-engineering",
+      "name": "平台通用工程约束",
+      "description": "所有共享角色的范围、复用、契约、提交、验证与产物清理要求。",
+      "shared": true,
+      "priority": 100,
+      "contentFile": "rules/common.md"
+    },
+    {
+      "id": "loopforge-backend-standards",
+      "name": "平台后端开发规范",
+      "description": "提炼自 PZH 后端与接口规范：分层、契约、事务、缓存、幂等、SQL 与权限；Spring、Feign、MyBatis-Plus、C12 按技术栈条件生效。",
+      "shared": true,
+      "priority": 90,
+      "contentFile": "rules/backend.md"
+    },
+    {
+      "id": "loopforge-frontend-standards",
+      "name": "平台前端开发规范",
+      "description": "提炼自 PZH 前端规范：组件复用、接口类型、精度、表单、权限与交互；Vue、C12、Apifox 和任务中心按适用条件生效。",
+      "shared": true,
+      "priority": 90,
+      "contentFile": "rules/frontend.md"
+    }
+  ],
+  "bindings": {
+    "loopforge-planner": ["loopforge-shared-engineering"],
+    "loopforge-product-manager": ["loopforge-shared-engineering"],
+    "loopforge-architect": ["loopforge-shared-engineering", "loopforge-backend-standards"],
+    "loopforge-backend-engineer": ["loopforge-shared-engineering", "loopforge-backend-standards"],
+    "loopforge-frontend-engineer": ["loopforge-shared-engineering", "loopforge-frontend-standards"],
+    "loopforge-code-reviewer": ["loopforge-shared-engineering", "loopforge-backend-standards", "loopforge-frontend-standards"],
+    "loopforge-test-engineer": ["loopforge-shared-engineering", "loopforge-backend-standards", "loopforge-frontend-standards"],
+    "loopforge-devops-engineer": ["loopforge-shared-engineering"],
+    "loopforge-database-reviewer": ["loopforge-shared-engineering", "loopforge-backend-standards"],
+    "loopforge-ui-designer": ["loopforge-shared-engineering", "loopforge-frontend-standards"],
+    "loopforge-technical-writer": ["loopforge-shared-engineering"]
+  }
+}

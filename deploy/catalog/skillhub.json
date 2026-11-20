@@ -1,0 +1,310 @@
+{
+  "projectId": "platform-capabilities",
+  "scope": "platform-shared",
+  "appliesAfter": [
+    "ecc/catalog.json",
+    "supplemental.json",
+    "engineering-rules.json"
+  ],
+  "installation": "通过 LoopForge 的 SkillHub 市场入口安装指定发布者和版本，再设为共享并绑定角色；此清单不触发自动安装或启动 seed。",
+  "existingSkillPolicy": "保留原有21项技能及其许可、上游锁和支持文件。10项正文相同的市场镜像本轮不迁移；市场包只读，不能直接承接当前附加许可与来源文件。",
+  "skills": [
+    {
+      "id": "technical-writing",
+      "name": "技术写作",
+      "description": "开发者技术文档方法与 README、API、ADR、runbook 模板。先核对真实实现和现有文档体系，按读者选择产物；网站脚手架、依赖安装与对外发布仅在任务明确要求时使用。",
+      "shared": true,
+      "source": {
+        "provider": "skillhub",
+        "namespace": "clawhub_royhk920",
+        "slug": "technical-writing",
+        "version": "1.0.0",
+        "homepage": "https://skillhub.cn/skills/clawhub_royhk920/technical-writing",
+        "installedAt": "2026-11-19T01:43:59.692490339Z",
+        "updatedAt": "2026-11-19T01:43:59.692490339Z"
+      },
+      "fileLocks": [
+        {
+          "path": "_meta.json",
+          "size": 136,
+          "sha256": "59e1e22957fbc9912d90dddcbfd947125a56f441f83d60bf3e423a0dd105f6b9"
+        },
+        {
+          "path": "examples/adr-template.md",
+          "size": 1800,
+          "sha256": "171efd1f8d0c35d7b28d4df739e337553401c5ad87f0402f55b5b0e2dca64e4b"
+        },
+        {
+          "path": "examples/runbook-template.md",
+          "size": 3953,
+          "sha256": "3aecb29b0797ca20e566c5fe332a2e815e14da62d9951c42ef7d14ccd4db9cb0"
+        },
+        {
+          "path": "references/mermaid-cheatsheet.md",
+          "size": 4588,
+          "sha256": "2ec388d415aacc13d1e11c8da2147e06cb82823d856831a2789098c71601b258"
+        },
+        {
+          "path": "references/writing-style-guide.md",
+          "size": 4625,
+          "sha256": "56dc9e3ad50193ae923a8dbd536a1094abbe194d548967e809a905983bc42d5c"
+        },
+        {
+          "path": "scripts/scaffold.sh",
+          "size": 3103,
+          "sha256": "5a591a10929502ea0b9991251728090ff6fec077452fc0a45efab610df048198"
+        },
+        {
+          "path": "SKILL.md",
+          "size": 33048,
+          "sha256": "2c513bc31ca0f28e48dcb5fd21d8581722c52a859bc85e3fa86fec0d610a4503"
+        }
+      ]
+    },
+    {
+      "id": "frontend-design",
+      "name": "界面设计",
+      "description": "界面信息层级、视觉方向、设计 token、版式、交互和响应式。用于界面设计或改版，不能替代 WCAG 合规审查或现有代码评审。已有设计系统和真实简报优先；不自行编造产品事实或默认重做视觉。",
+      "shared": true,
+      "source": {
+        "provider": "skillhub",
+        "namespace": "clawhub_paudyyin",
+        "slug": "frontend-design",
+        "version": "1.1.0",
+        "homepage": "https://skillhub.cn/skills/clawhub_paudyyin/frontend-design",
+        "installedAt": "2026-11-19T01:44:37.754061385Z",
+        "updatedAt": "2026-11-19T01:44:37.754061385Z"
+      },
+      "fileLocks": [
+        {
+          "path": "_meta.json",
+          "size": 108,
+          "sha256": "309d807f757ed2fc17f39c45f992b45ed2ae2e7ac578f4e771171c0f4631abb8"
+        },
+        {
+          "path": "SKILL.md",
+          "size": 11826,
+          "sha256": "d7d7550c1e2093329687db2764937ce9e110e2319d7600f4d64e4cb954266443"
+        }
+      ]
+    },
+    {
+      "id": "mysql",
+      "name": "MySQL 设计与评审",
+      "description": "仅用于目标数据库为 MySQL 时的设计、查询与评审：字符集、索引、锁、事务、DDL 和执行计划。遵循项目 DDL 规范；CLI 与真实数据库操作按环境和任务授权启用。",
+      "shared": true,
+      "source": {
+        "provider": "skillhub",
+        "namespace": "clawhub_ivangdavila",
+        "slug": "mysql",
+        "version": "1.0.1",
+        "homepage": "https://skillhub.cn/skills/clawhub_ivangdavila/mysql",
+        "installedAt": "2026-11-19T01:44:39.778116178Z",
+        "updatedAt": "2026-11-19T01:44:39.778116178Z"
+      },
+      "fileLocks": [
+        {
+          "path": "_meta.json",
+          "size": 124,
+          "sha256": "97bb74e99de22bee35eef3af298a51d651a4493333649e18813fa5724c91be87"
+        },
+        {
+          "path": "indexes.md",
+          "size": 202,
+          "sha256": "32b196140b168fb6198ccc926f8eeadba5e4b5562df304b4734ffc603dd3790d"
+        },
+        {
+          "path": "production.md",
+          "size": 1605,
+          "sha256": "a2462629cd9ab22118ee1ae7a46c91522ba64e78b9943d3a67f1a32f308c64d6"
+        },
+        {
+          "path": "queries.md",
+          "size": 1596,
+          "sha256": "dd60e3051aee79f67cfb6d7b50f86efab64753ea77f6ff4a0da801196cf35f1d"
+        },
+        {
+          "path": "SKILL.md",
+          "size": 4217,
+          "sha256": "97003e1d9502f459d9442c12a3328abb6862066137de58f1b4ee561130fc8c5f"
+        },
+        {
+          "path": "transactions.md",
+          "size": 121,
+          "sha256": "9e32a0625bc6d36da54f47ef1ec043b7febf59004487877de5a6dc16f5c49109"
+        }
+      ]
+    },
+    {
+      "id": "verification-before-completion",
+      "name": "完成前验证",
+      "description": "完成声明前的证据核验：运行适当验证、读取退出码和结果，再报告已完成事项及未覆盖范围。与 verification-loop 的验证步骤互补；范围、命令和产物清理遵循项目约定。",
+      "shared": true,
+      "source": {
+        "provider": "skillhub",
+        "namespace": "clawhub_zlc000190",
+        "slug": "verification-before-completion",
+        "version": "0.1.0",
+        "homepage": "https://skillhub.cn/skills/clawhub_zlc000190/verification-before-completion",
+        "installedAt": "2026-11-19T01:44:41.90718372Z",
+        "updatedAt": "2026-11-19T01:44:41.90718372Z"
+      },
+      "fileLocks": [
+        {
+          "path": "_meta.json",
+          "size": 149,
+          "sha256": "93f17ca2780f0b3ab8cef5f7cd65129f7c434e8f4ef719028d11985e5e3af961"
+        },
+        {
+          "path": "SKILL.md",
+          "size": 4201,
+          "sha256": "ea52d15aabaf72bc6b558efe2c126f161b53961090ddcd712000273bfe8c7b6c"
+        }
+      ]
+    },
+    {
+      "id": "webapp-testing",
+      "name": "网页交互自动化测试",
+      "description": "真实网页交互与自动化验证：操作、断言、状态、截图和浏览器日志。LoopForge 运行时优先使用自带 agentflow-browser；可重复回归复用项目已有测试框架。产品验收结论由对应验收职责核对，不以截图或脚本退出码单独代替。",
+      "shared": true,
+      "source": {
+        "provider": "skillhub",
+        "namespace": "org-eyw2ohcx",
+        "slug": "anthropics-skills-webapp-testing",
+        "version": "1.0.0",
+        "homepage": "https://skillhub.cn/skills/org-eyw2ohcx/anthropics-skills-webapp-testing",
+        "installedAt": "2026-11-19T02:42:42.368761095Z",
+        "updatedAt": "2026-11-19T02:42:42.368761095Z"
+      },
+      "fileLocks": [
+        {
+          "path": "_meta.json",
+          "size": 125,
+          "sha256": "c0cca23ce1029d3fa97948c4bf88d7991bcf9c3e1ef870e5b6ebd3a9952b46c2"
+        },
+        {
+          "path": "examples/console_logging.py",
+          "size": 1027,
+          "sha256": "ea46877289acb82da7e7ce59d0bc37c8977cd57e2a006d0c88d7a1c625bf95da"
+        },
+        {
+          "path": "examples/element_discovery.py",
+          "size": 1463,
+          "sha256": "d63c89604a22f8845d724e95dda45db49b1bf57c25ce0a83afbb7b8da3d402f0"
+        },
+        {
+          "path": "examples/static_html_automation.py",
+          "size": 953,
+          "sha256": "9d533aafb875ee3ab8b8ebf8f5b9003ac8d999da3d09b285cce252e623140064"
+        },
+        {
+          "path": "LICENSE.txt",
+          "size": 11345,
+          "sha256": "bc6b3af2f331cbc7fb0da1344efb2cbe5877a31498b4d70dbc7000f3405a1362"
+        },
+        {
+          "path": "scripts/with_server.py",
+          "size": 3693,
+          "sha256": "b0dcf4918935b795f4eda9821579b9902119235ff4447f687a30286e7d0925fd"
+        },
+        {
+          "path": "SKILL.md",
+          "size": 3913,
+          "sha256": "51b7349e77ec63b7744a6f63647e7566a0b4d2e301121cc10e8c2113af6556a2"
+        }
+      ]
+    },
+    {
+      "id": "steve-krug-ux-audit",
+      "name": "产品 UI 交互走查",
+      "description": "按 Steve Krug 可用性方法核对真实用户流程、导航、反馈、文案和响应式。用于产品与 UI 交互走查；验收以需求和实际操作证据为准，截图仅能支持可见问题，不能据此推断功能、登录权限或完整 WCAG 合规。",
+      "shared": true,
+      "source": {
+        "provider": "skillhub",
+        "namespace": "clawhub_couriard",
+        "slug": "steve-krug-ux-audit",
+        "version": "1.0.1",
+        "homepage": "https://skillhub.cn/skills/clawhub_couriard/steve-krug-ux-audit",
+        "installedAt": "2026-11-19T02:42:44.369352096Z",
+        "updatedAt": "2026-11-19T02:42:44.369352096Z"
+      },
+      "fileLocks": [
+        {
+          "path": "_meta.json",
+          "size": 138,
+          "sha256": "b29650c34f829d30a02c7a06f2cd313a15766972adc9c3abe92d235113d53285"
+        },
+        {
+          "path": "SKILL.md",
+          "size": 11936,
+          "sha256": "f08f055a7097631d0a0cd658dbc221bf73d677fa6c0fb12a047ad61db4925470"
+        }
+      ]
+    }
+  ],
+  "additionalSkillBindings": {
+    "loopforge-ui-designer": [
+      "frontend-design",
+      "steve-krug-ux-audit"
+    ],
+    "loopforge-technical-writer": [
+      "technical-writing"
+    ],
+    "loopforge-database-reviewer": [
+      "mysql"
+    ],
+    "loopforge-backend-engineer": [
+      "mysql",
+      "verification-before-completion"
+    ],
+    "loopforge-frontend-engineer": [
+      "verification-before-completion",
+      "webapp-testing"
+    ],
+    "loopforge-test-engineer": [
+      "verification-before-completion",
+      "webapp-testing",
+      "steve-krug-ux-audit"
+    ],
+    "loopforge-devops-engineer": [
+      "verification-before-completion"
+    ],
+    "loopforge-product-manager": [
+      "steve-krug-ux-audit"
+    ]
+  },
+  "skillNameReferences": {
+    "superpowers:test-driven-development": "test-driven-development",
+    "superpowers:verification-before-completion": "verification-before-completion"
+  },
+  "referenceMappingRuleId": "loopforge-shared-engineering",
+  "engineeringRulesFile": "engineering-rules.json",
+  "packageReview": {
+    "frontend-design": {
+      "sourceIdentity": "clawhub_paudyyin/frontend-design",
+      "version": "1.1.0",
+      "previewSkillMdSha256": "f0ebd085c54b997b29e6021eea463226fd284ebb1f59220a64aa9672cc948bac",
+      "installedSkillMdSha256": "d7d7550c1e2093329687db2764937ce9e110e2319d7600f4d64e4cb954266443",
+      "reviewedChanges": [
+        "触发描述更明确，排除 WCAG 合规审查、UI 代码审查和营销销售文案。",
+        "增加调用方式、示例和失败边界；明确不需要 CLI 或附带脚本。",
+        "仍建议在简报缺主题时自行选主题；通用规则明确以真实简报为准，缺信息需说明假设或澄清。",
+        "删除部分固定视觉禁用清单，保留项目简报优先、双轮设计和基础可用性要求。"
+      ],
+      "decision": "保留实际安装包，按实际摘要锁定；描述已同步为实际适用范围。"
+    },
+    "browserTesting": {
+      "newSkillIds": [
+        "webapp-testing",
+        "steve-krug-ux-audit"
+      ],
+      "actualSkillMdMatchesPreview": true,
+      "allFilesReadAndHashed": 9,
+      "browserPolicy": "LoopForge agentflow-browser 优先；上游自行启动 Chromium、networkidle、固定输出路径等示例服从平台规则；独立CI回归复用项目测试入口。",
+      "supportingScriptReview": "with_server.py 使用 shell=True、stdout/stderr PIPE 且只终止直接进程；本轮不执行此辅助脚本，服务生命周期优先交由平台或项目已有测试配置管理。",
+      "uxReviewBoundary": "Steve Krug 方法适用于走查；产品验收对照真实需求和用户操作，未测试的交互不因截图或评级而判通过。"
+    }
+  },
+  "updatePolicy": "更新提示对应 SkillHub 发布者。更新前读取实际安装包差异，核对依赖、许可、支持文件和角色引用，不能仅按同名或版本号覆盖。",
+  "runtimeBrowserPolicyFile": "browser-acceptance.json"
+}

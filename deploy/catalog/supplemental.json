@@ -1,0 +1,122 @@
+{
+  "projectId": "platform-capabilities",
+  "skills": [
+    {
+      "id": "systematic-debugging",
+      "name": "Superpowers · 系统化调试",
+      "source": "superpowers",
+      "sourcePath": "skills/systematic-debugging",
+      "description": "遇到缺陷、测试失败或异常行为时，先收集证据、追踪根因并验证假设，再实施修复。"
+    },
+    {
+      "id": "test-driven-development",
+      "name": "Superpowers · 测试驱动开发",
+      "source": "superpowers",
+      "sourcePath": "skills/test-driven-development",
+      "description": "实现功能或修复缺陷时，验证失败测试、最小实现与回归结果，避免无法证明有效性的测试。"
+    },
+    {
+      "id": "receiving-code-review",
+      "name": "Superpowers · 评审反馈处理",
+      "source": "superpowers",
+      "sourcePath": "skills/receiving-code-review",
+      "description": "收到代码评审意见后，先核对事实和适用性，再逐项修复、验证并报告处理结果。"
+    },
+    {
+      "id": "bmad-product-brief",
+      "name": "BMAD · 产品简报与需求定型",
+      "source": "bmad",
+      "sourcePath": "web-bundles/product-brief-coach",
+      "entrypoint": "bmad/skills/bmad-product-brief/SKILL.md",
+      "description": "基于 BMAD V6.12 独立产品简报协议的 LoopForge 封装；通过创建、更新或验证简报，明确问题、用户、范围、成功标准和待确认假设。",
+      "files": {
+        "references/product-brief-protocol.md": "web-bundles/product-brief-coach/SKILL.md",
+        "references/original-instructions.md": "web-bundles/product-brief-coach/INSTRUCTIONS.md"
+      }
+    }
+  ],
+  "agents": [
+    {
+      "id": "loopforge-product-manager",
+      "name": "产品经理",
+      "source": "agency-agents",
+      "sourcePrompt": "product/product-manager.md",
+      "description": "负责用户问题、产品目标、范围优先级与验收标准，输出可供技术规划和设计使用的产品定义。",
+      "prompt": "你负责产品定义，回答为什么做、为谁做、做什么、如何判断成功。先阅读用户材料和已有产品信息，区分事实、假设与待确认事项；按任务需要使用产品简报方法澄清目标、用户场景、范围、优先级和可验证验收标准。技术规划师负责实施拆解，软件架构师负责技术方案，你不重复承担这些职责。不要自行扩大到市场推广、定价、融资或组织管理；需要这些内容时由用户另行指定。交付简洁、可执行、能传递给设计与研发的产品定义。",
+      "skills": [
+        "bmad-product-brief"
+      ],
+      "rules": [
+        "loopforge-shared-engineering"
+      ],
+      "executorId": "codex",
+      "model": "",
+      "effort": ""
+    },
+    {
+      "id": "loopforge-ui-designer",
+      "name": "UI 设计师",
+      "source": "agency-agents",
+      "sourcePrompt": "design/design-ui-designer.md",
+      "description": "依据产品定义和项目设计规范制定页面布局、交互状态、组件与视觉方案，交接前端实现。",
+      "prompt": "你负责界面设计，先读取项目现有设计规范、页面结构、组件体系和产品定义，再完成任务需要的布局、信息层级、组件、交互状态、响应式与可访问性方案。已有设计系统时优先沿用；需要新建时说明取舍并控制范围。按任务交付设计说明、原型或设计资源；前端开发工程师负责正式实现与接口联调。不得将某个产品的品牌、颜色或组件库固化为全平台要求。",
+      "skills": [
+        "frontend-patterns",
+        "api-design"
+      ],
+      "rules": [
+        "loopforge-shared-engineering",
+        "loopforge-frontend-standards"
+      ],
+      "executorId": "codex",
+      "model": "",
+      "effort": ""
+    },
+    {
+      "id": "loopforge-technical-writer",
+      "name": "技术文档工程师",
+      "source": "agency-agents",
+      "sourcePrompt": "engineering/engineering-technical-writer.md",
+      "description": "根据真实实现维护 README、API 参考、操作指南、教程与发布文档，验证示例和说明的一致性。",
+      "prompt": "你负责技术文档。先核对代码、接口和现有资料，再按读者需求选择教程、操作指南、概念解释或参考文档。沿用仓库已有文档体系，验证涉及的命令与示例；无法验证时明确标注。只描述实际存在的能力、行为和限制，不将规划写成已实现。控制改动范围，不擅自引入新的文档站框架、发布流水线或对外发布操作。",
+      "skills": [
+        "api-design",
+        "coding-standards"
+      ],
+      "rules": [
+        "loopforge-shared-engineering"
+      ],
+      "executorId": "codex",
+      "model": "",
+      "effort": ""
+    }
+  ],
+  "bindings": {
+    "loopforge-backend-engineer": [
+      "systematic-debugging",
+      "test-driven-development",
+      "receiving-code-review"
+    ],
+    "loopforge-frontend-engineer": [
+      "systematic-debugging",
+      "test-driven-development",
+      "receiving-code-review"
+    ],
+    "loopforge-test-engineer": [
+      "systematic-debugging",
+      "test-driven-development"
+    ],
+    "loopforge-devops-engineer": [
+      "systematic-debugging"
+    ]
+  },
+  "selection": {
+    "verification": "verification-before-completion 负责完成声明前核对证据；ECC verification-loop 负责按任务选择验证步骤。共用有效证据，不重复执行同样的验证。",
+    "review": "The existing ECC code-reviewer remains the single general code-review role.",
+    "planning": "The ECC planner handles technical task decomposition; the Agency Agents product manager handles product definition.",
+    "runtime": "LoopForge retains orchestration and approvals. No upstream dispatch framework, startup hooks or SOP templates are installed.",
+    "bmad": "Use the pinned V6.12 standalone product-brief protocol with an explicit workspace-artifact mapping; the main-branch _bmad runtime is not required.",
+    "market": "补缺技能通过 SkillHub 原生安装；版本、文件摘要和附加角色绑定见 skillhub.json，浏览器与交互验收职责见 browser-acceptance.json。"
+  },
+  "engineeringRulesFile": "engineering-rules.json"
+}

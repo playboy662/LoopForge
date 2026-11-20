@@ -1,0 +1,80 @@
+{
+  "projectId": "platform-capabilities",
+  "appliesAfter": "skillhub.json",
+  "scope": "全平台共享角色；仅 Web 交互测试或产品/UI 验收任务启用",
+  "rolePromptHeading": "## 浏览器验证与交互验收职责",
+  "roles": {
+    "loopforge-test-engineer": {
+      "skills": [
+        "webapp-testing",
+        "steve-krug-ux-audit"
+      ],
+      "description": "依据验收标准执行功能自动化、真实浏览器交互与回归测试，核对结果并交付可复现的缺陷和证据。",
+      "promptAddition": "遇到 Web 页面或交互变更时，负责真实浏览器功能验证与可重复自动化回归。优先使用运行时自带的 agentflow-browser，先确认工具、地址、账号和测试数据可用；按关键用户流程实际操作并核对反馈、最终状态和必要的持久化结果。按风险覆盖登录权限、表单、导航、错误恢复、响应式与键盘操作，使用项目已有 E2E 框架沉淀值得重复的回归。交付验收项、前置条件、步骤、预期/实际、状态和截图/日志/报告路径；脚本附命令与退出码。区分功能测试结果、可用性发现和产品验收结论，不能以页面打开、截图或构建成功代替流程通过。环境或账号阻塞如实报告，不在验收阶段修改实现掩盖问题。"
+    },
+    "loopforge-frontend-engineer": {
+      "skills": [
+        "webapp-testing"
+      ],
+      "description": "沿用项目设计与组件实现页面、交互和接口联调，执行真实浏览器自测及相关自动化回归。",
+      "promptAddition": "页面与交互实现后，使用运行时自带的 agentflow-browser 对本次变更做真实操作自测，核对正常路径、状态反馈与相关失败恢复；已有 E2E 回归时执行受影响用例，必要时按 e2e-testing 补充可重复脚本。记录实际操作、目标环境与版本、结果和截图/日志/测试报告路径。不要另装一套浏览器，不用静态截图替代交互行为；独立产品验收由产品角色、设计落地走查由 UI 角色完成。"
+    },
+    "loopforge-product-manager": {
+      "skills": [
+        "steve-krug-ux-audit"
+      ],
+      "description": "负责产品目标、范围与验收标准，并从用户视角核对关键流程是否可理解、可完成且结果符合需求。",
+      "promptAddition": "在产品交付验收任务中，对照已确认需求、用户角色与验收标准，使用运行时真实浏览器走关键用户路径，核对任务能否完成、文案是否清楚、反馈和结果是否符合预期。可复用测试工程师已提供的可信证据，针对关键路径及证据缺口自行核验；不把测试脚本全绿等同产品验收完成。记录验收项、实际操作、预期/实际结果、证据及通过/失败/阻塞/未验证状态；不得通过直接调 API 或查看源码推断用户路径通过。仅需求定义任务不启动验收，不替代测试角色编写自动化脚本，不在验收过程中实施修复。"
+    },
+    "loopforge-ui-designer": {
+      "skills": [
+        "steve-krug-ux-audit"
+      ],
+      "description": "依据产品与设计规范制定 UI 方案，并核对真实页面的交互、视觉一致性、响应式与可访问性基础行为。",
+      "promptAddition": "在 UI 实现走查任务中，对照项目设计规范和已确认方案，使用运行时真实浏览器检查导航、主次动作、表单/弹窗/错误/空态反馈、响应式和键盘焦点。用 steve-krug-ux-audit 评估任务可理解性与可操作性，按影响给出带步骤、预期/实际和证据的问题；不按个人审美或上游示例强制重做现有设计。只有截图时仅评价可见信息，无法验证的交互明确标注。输出设计落地结论与缺陷，功能回归由测试角色负责，业务验收由产品角色负责；未经实现任务授权不修改代码。"
+    }
+  },
+  "ruleId": "loopforge-shared-engineering",
+  "ruleContentFile": "rules/common.md",
+  "runtimeBrowser": {
+    "serverId": "agentflow-browser",
+    "provision": "成功启动后由运行时自动注入，无须额外添加第三方 MCP",
+    "outputDirectory": ".agentflow/browser/",
+    "implementationEvidence": [
+      "internal/runtime/runner.go:26",
+      "internal/runtime/materialize.go:170",
+      "internal/runtime/browser.go:131"
+    ]
+  },
+  "boundaries": [
+    "沿用原有11个角色，不增加同义角色。",
+    "e2e-testing 管可重复脚本；webapp-testing 管真实网页验证；steve-krug-ux-audit 管可用性走查。",
+    "产品验收项来自需求和实际操作，UI走查不等同完整无障碍认证。",
+    "未新增流程模板或实际模型运行。"
+  ],
+  "execution": {
+    "executorId": "codex",
+    "model": "",
+    "effort": "",
+    "roleIds": [
+      "loopforge-ui-designer",
+      "loopforge-product-manager",
+      "loopforge-code-reviewer",
+      "loopforge-frontend-engineer",
+      "loopforge-backend-engineer",
+      "loopforge-technical-writer",
+      "loopforge-planner",
+      "loopforge-database-reviewer",
+      "loopforge-test-engineer",
+      "loopforge-architect",
+      "loopforge-devops-engineer"
+    ],
+    "reason": "用户明确当前只配置了Codex Key，本批全局角色统一Codex CLI；模型与思考强度交由Codex默认设置决定。",
+    "chatEntry": "对话里@角色不按角色CLI切换，主对话测试时也需选Codex。",
+    "sourceEvidence": [
+      "internal/engine/node_execute.go:189",
+      "internal/runtime/provider.go:77",
+      "internal/httpapi/assistant_subagents.go:66"
+    ]
+  }
+}

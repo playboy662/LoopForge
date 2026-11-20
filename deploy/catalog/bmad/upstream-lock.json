@@ -1,0 +1,26 @@
+{
+  "repository": "https://github.com/bmad-code-org/BMAD-METHOD",
+  "commit": "bab9082c3e884e0d72c759bcd1a6d90bcc01be84",
+  "license": "MIT",
+  "files": [
+    {
+      "path": "LICENSE",
+      "sha256": "0aa79baf6328b4a1e694ce10a12ffc36d7666554da128dff0e8fcda0fc536a66",
+      "size": 1572,
+      "mode": 420
+    },
+    {
+      "path": "web-bundles/product-brief-coach/INSTRUCTIONS.md",
+      "sha256": "938854f8ab8d0956c64a6d0c46915aaef858c50edac17e5732054f08b74f5e13",
+      "size": 5131,
+      "mode": 420
+    },
+    {
+      "path": "web-bundles/product-brief-coach/SKILL.md",
+      "sha256": "a2ff8f4b48aad2f9923d31624ac51e95a445c982681d0e73ada21d45302e8f2c",
+      "size": 8276,
+      "mode": 420
+    }
+  ],
+  "branch": "V6.12"
+}
