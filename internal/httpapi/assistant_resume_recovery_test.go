@@ -57,6 +57,20 @@ func TestFreshPhasePromptFollowsCurrentMode(t *testing.T) {
 	}
 }
 
+func TestPrototypeGuidanceSurvivesWorkspaceHandoff(t *testing.T) {
+	for _, mode := range []string{AssistantApprovalConfirm, AssistantApprovalAssisted, AssistantApprovalAuto} {
+		if !strings.Contains(assistantSystemPromptForMode(mode), assistantPrototypeQualityPrompt) {
+			t.Errorf("initial prompt for %q lacks prototype guidance", mode)
+		}
+	}
+	for _, workspace := range []bool{false, true} {
+		prompt := assistantTurnContext(assistantRequest{workspaceMode: workspace})
+		if !strings.Contains(prompt, assistantPrototypeQualityPrompt) {
+			t.Errorf("resumed turn (workspace=%t) lost prototype guidance", workspace)
+		}
+	}
+}
+
 func TestHandoffOutlivesOldPhaseError(t *testing.T) {
 	s := &AgentToolSession{}
 	ctx := context.Background()
