@@ -149,9 +149,7 @@
   function renderList(menu, selectedId, onPick) {
     renderOptions(menu, catalog.models || [], selectedId, onPick);
   }
-  // Requirement clarification, Bot replies, run evals and the SOP preview
-  // build run on CodeBuddy only, so their pickers list CodeBuddy models and
-  // never offer a "codex:…" id the server would have to refuse.
+  // Bot replies and SOP preview builds use CodeBuddy-only pickers.
   function codeBuddyModels() {
     return (catalog.models || []).filter(m => (m.engine || 'codebuddy') === 'codebuddy');
   }
@@ -165,6 +163,23 @@
     // The catalog may not have landed yet; the built-in CLI prefixes still count.
     if (!value || /^(codex|claude-code):/.test(value) || engineOf(value) !== 'codebuddy') return DEFAULT_MODEL;
     return value;
+  }
+  // Keep explicit choices, including models temporarily absent from discovery.
+  // On first use prefer a CLI with credentials in the personal model catalog.
+  function configuredModel(id) {
+    const saved = String(id || '').trim();
+    if (saved) return saved;
+    const engine = (catalog.engines || []).find(e => e.personalConfigured ?? e.configured);
+    return (catalog.models || []).find(m => engineOf(m.id) === engine?.id)?.id || catalog.default || DEFAULT_MODEL;
+  }
+  function configuredMeta(id) {
+    const meta = modelMeta(id), engine = engineOf(id);
+    const name = (catalog.engines || []).find(e => e.id === engine)?.name || engine;
+    return {...meta, name: `${name} · ${meta.name || meta.id}`};
+  }
+  function paintConfigured(toggle, id) { paintItem(toggle, configuredMeta(id)); }
+  function renderConfiguredList(menu, selectedId, onPick) {
+    renderOptions(menu, (catalog.models || []).map(m => configuredMeta(m.id)), selectedId, onPick);
   }
   async function fetchCatalog() {
     const resp = await fetch('/api/assistant/models', {headers: {Accept: 'application/json'}, credentials: 'same-origin'});
@@ -191,6 +206,9 @@
     codeBuddyModel,
     codeBuddyModels,
     engineOf,
+    configuredModel,
+    paintConfigured,
+    renderConfiguredList,
     load,
     paint,
     paintItem,

@@ -265,6 +265,16 @@ func (h *agentToolGateway) callTool(ctx context.Context, session *AgentToolSessi
 	if session.terminalToolsOnly() {
 		return nil, errAgentToolForbidden
 	}
+	if name == "clarify_repository_read" {
+		if session.Mode != AgentToolClarify || session.ClarifyRepositoryRoot == "" {
+			return nil, errAgentToolForbidden
+		}
+		text, err := readClarifyRepository(ctx, session.ClarifyRepositoryRoot, params.Arguments)
+		if err != nil {
+			return mcpToolTextResult(err.Error(), true), nil
+		}
+		return mcpToolTextResult(text, false), nil
+	}
 	if name == "workbench_tool_schema" && session.Mode == AgentToolAssistant {
 		var input struct {
 			Name string `json:"name"`

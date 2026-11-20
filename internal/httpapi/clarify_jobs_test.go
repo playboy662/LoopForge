@@ -16,6 +16,8 @@ import (
 	"agentflow/internal/repo"
 	"agentflow/internal/runtime"
 	"agentflow/internal/tracker"
+
+	"github.com/gin-gonic/gin"
 )
 
 func TestIssueClarifyContinuesAfterClientDisconnect(t *testing.T) {
@@ -219,6 +221,42 @@ func clarifyTestServer(t *testing.T) (*repo.Store, http.Handler) {
 
 type flushRecorder struct{ *httptest.ResponseRecorder }
 
+func TestClarifyReplayKeepsCompleteStreamBlocks(t *testing.T) {
+	job := &clarifyJob{subs: map[chan clarifyJobEvent]struct{}{}, done: make(chan struct{})}
+	job.publish("thought", assistantStreamEvent{Kind: "thinkingStart"})
+	for i := 0; i < 200; i++ {
+		job.publish("thought", assistantStreamEvent{Kind: "thinking", Text: "读"})
+	}
+	job.publish("thought", assistantStreamEvent{Kind: "tool", Tool: "Read", ID: "read-1", Detail: "src/auth.go"})
+	ch, replay, _, _, _ := job.subscribe()
+	defer job.unsubscribe(ch)
+	if len(replay) != 2 {
+		t.Fatalf("replay has %d entries, want one text block and one tool", len(replay))
+	}
+	text, ok := replay[0].Payload.(assistantStreamEvent)
+	if !ok || text.Text != strings.Repeat("读", 200) || !text.Full || replay[0].Seq != 201 {
+		t.Fatalf("replay text=%+v seq=%d", text, replay[0].Seq)
+	}
+	job.publish("thought", assistantStreamEvent{Kind: "thinkingStart"})
+	job.publish("thought", assistantStreamEvent{Kind: "thinking", Text: "下一段"})
+	job.publish("thought", assistantStreamEvent{Kind: "thinking", Text: "下一段", Full: true})
+	replayCh, replay, _, _, _ := job.subscribe()
+	defer job.unsubscribe(replayCh)
+	if len(replay) != 3 || replay[2].Payload.(assistantStreamEvent).Text != "下一段" {
+		t.Fatalf("text boundaries lost: %+v", replay)
+	}
+
+	close(job.done)
+	h := &streamHandlers{}
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodGet, "/stream?after=201", nil)
+	h.streamClarifyJob(c, job)
+	if strings.Contains(recorder.Body.String(), strings.Repeat("读", 200)) || !strings.Contains(recorder.Body.String(), "id: 202\n") || !strings.Contains(recorder.Body.String(), "下一段") {
+		t.Fatalf("resume stream=%s", recorder.Body.String())
+	}
+}
+
 func newFlushRecorder() *flushRecorder {
 	return &flushRecorder{ResponseRecorder: httptest.NewRecorder()}
 }
@@ -364,11 +402,11 @@ func TestClarifyStreamEventsDropsProtocolJSONThoughts(t *testing.T) {
 		}
 	}
 	got := clarifyStreamEvents(line("thinking", "thinking", "正在读 TAPD 原单"))
-	if len(got) != 1 || got[0]["text"] != "正在读 TAPD 原单" {
+	if len(got) != 1 || got[0].Text != "正在读 TAPD 原单" {
 		t.Fatalf("got %+v", got)
 	}
 	got = clarifyStreamEvents(line("text", "text", "我先看 TAPD 原单和评论"))
-	if len(got) != 1 || got[0]["text"] != "我先看 TAPD 原单和评论" {
+	if len(got) != 1 || got[0].Text != "我先看 TAPD 原单和评论" {
 		t.Fatalf("plain text got %+v", got)
 	}
 }
@@ -424,10 +462,13 @@ func TestPersistClarifyKeepsSessionID(t *testing.T) {
 	if stored.Clarification.SessionUserID != 1 {
 		t.Fatalf("sessionUserId=%d", stored.Clarification.SessionUserID)
 	}
-	h.rememberClarifySession("iss-session", "new-session", 13)
+	h.rememberClarifySession("iss-session", "new-session", 13, "codex:custom-model")
 	updated, _ := s.Issue("iss-session")
 	if updated.Clarification.SessionID != "new-session" || updated.Clarification.SessionUserID != 13 {
 		t.Fatalf("session binding not updated: %+v", updated.Clarification)
+	}
+	if updated.Clarification.Model != "codex:custom-model" || updated.Clarification.SessionEngine != "codex" {
+		t.Fatalf("model binding not updated: %+v", updated.Clarification)
 	}
 	if len(updated.Clarification.History) != len(stored.Clarification.History) || updated.Clarification.Summary != stored.Clarification.Summary {
 		t.Fatal("rebinding session must preserve clarification history and summary")

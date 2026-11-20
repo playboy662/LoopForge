@@ -55,7 +55,10 @@ type assistantEngineOption struct {
 	ID         string `json:"id"`
 	Name       string `json:"name"`
 	Configured bool   `json:"configured"`
-	Credential string `json:"credential"`
+	// PersonalConfigured excludes sponsored chat credentials. Analysis features
+	// run on the responsible user's own account.
+	PersonalConfigured bool   `json:"personalConfigured"`
+	Credential         string `json:"credential"`
 }
 
 // assistantEngineCredentialField is the 个人配置 field that enables a CLI.
@@ -80,10 +83,11 @@ func assistantEngineOptions(user domain.User, sponsored bool) []assistantEngineO
 	for _, engine := range engines {
 		key, _ := assistantEngineCredential(user, engine)
 		out = append(out, assistantEngineOption{
-			ID:         engine,
-			Name:       assistantEngineLabel(engine),
-			Configured: key != "" || (engine == assistantEngineCodeBuddy && sponsored),
-			Credential: assistantEngineCredentialField(engine),
+			ID:                 engine,
+			Name:               assistantEngineLabel(engine),
+			Configured:         key != "" || (engine == assistantEngineCodeBuddy && sponsored),
+			PersonalConfigured: key != "",
+			Credential:         assistantEngineCredentialField(engine),
 		})
 	}
 	return out
@@ -248,6 +252,33 @@ func assistantEngineSwitchRefusal(locked, model string) string {
 
 func assistantEngineMissingKey(engine string) string {
 	return fmt.Sprintf("请先在个人配置中配置 %s API Key 后再使用 %s 模型", assistantEngineLabel(engine), assistantEngineLabel(engine))
+}
+
+// configuredAnalysisModel keeps the selected provider and its real model ID.
+// Analysis features use personal credentials; a missing key must never route
+// the request to a different CLI or a sponsored chat model.
+func configuredAnalysisModel(id string, user domain.User) (string, error) {
+	id = strings.TrimSpace(id)
+	if id == "" {
+		id = assistantDefaultModel
+		if key, _ := assistantEngineCredential(user, assistantEngineCodeBuddy); key == "" {
+			for _, engine := range assistantCLIEngines() {
+				if key, _ := assistantEngineCredential(user, engine); key != "" {
+					id = engine + ":default"
+					break
+				}
+			}
+		}
+	}
+	id = strings.TrimPrefix(id, assistantEngineCodeBuddy+":")
+	engine, model := assistantModelEngine(id)
+	if !assistantValidEngineModel(model) {
+		return "", fmt.Errorf("模型 ID 无效")
+	}
+	if key, _ := assistantEngineCredential(user, engine); key == "" {
+		return "", fmt.Errorf("%s", assistantEngineMissingKey(engine))
+	}
+	return id, nil
 }
 
 // assistantTurnUser checks personal credentials or the chosen runner login.

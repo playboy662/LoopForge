@@ -351,7 +351,7 @@ function normalizeClarifyParsed(parsed){
 }
 function clarifyToolLabel(tool){
   const name=String(tool||'').replace(/^mcp__agentflow_session__/,'');
-  return ({Read:'读取',Grep:'搜索',Glob:'查找',MCP:'MCP',submit_clarification:'提交结论',submit_assistant_reply:'提交回复'})[name]||name||'操作';
+  return ({Read:'读取',Grep:'搜索',Glob:'查找',MCP:'MCP',clarify_repository_read:'读取仓库',submit_clarification:'提交结论',submit_assistant_reply:'提交回复'})[name]||name||'操作';
 }
 function collectRequirementDraft(){
   const description=reqDescription();

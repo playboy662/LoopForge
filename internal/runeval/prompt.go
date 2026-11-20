@@ -3,6 +3,7 @@ package runeval
 import (
 	"encoding/json"
 	"fmt"
+	"math"
 	"strings"
 
 	"agentflow/internal/domain"
@@ -22,7 +23,7 @@ func BuildPrompt(policy domain.RunEvalPolicy, facts domain.RunEvalFacts) (system
 	}
 	b.WriteString(`},"findings":[{"severity":"warn","dimension":"control","nodeId":"","ruleId":"","message":"","evidence":""}],"summary":"","recommendations":[]}` + "\n")
 	b.WriteString("规则：\n")
-	b.WriteString(fmt.Sprintf("- 准入线 %d 分。dimensions 每维 0-100，必须覆盖全部维度。score 可省略，服务端会按权重重算。\n", policy.Threshold))
+	b.WriteString(fmt.Sprintf("- 准入线 %d 分。dimensions 每维 0-100，必须覆盖全部维度。小数维度分会四舍五入到整数；score 可省略，服务端会按权重重算。\n", policy.Threshold))
 	b.WriteString("- findings 用中文，指向具体 nodeId 和 digest seq / event。severity 只能是 info/warn/error。\n")
 	b.WriteString("- summary 必须包含这次 run 的质量结论，以及如果没有可应用补丁时应该怎么改。\n")
 	b.WriteString("- recommendations 可为空。可应用时 action 只能是：update_node、upsert_gate、remove_gate、append_task_prompt（追加到角色 prompt）。\n")
@@ -44,9 +45,8 @@ func ParseModelResult(raw string, policy domain.RunEvalPolicy) (domain.RunEvalRe
 		return domain.RunEvalResult{}, fmt.Errorf("model did not return JSON")
 	}
 	var parsed struct {
-		Score           int                            `json:"score"`
 		Summary         string                         `json:"summary"`
-		Dimensions      map[string]int                 `json:"dimensions"`
+		Dimensions      map[string]*float64            `json:"dimensions"`
 		Findings        []domain.RunEvalFinding        `json:"findings"`
 		Recommendations []domain.RunEvalRecommendation `json:"recommendations"`
 	}
@@ -56,7 +56,16 @@ func ParseModelResult(raw string, policy domain.RunEvalPolicy) (domain.RunEvalRe
 	if strings.TrimSpace(parsed.Summary) == "" {
 		return domain.RunEvalResult{}, fmt.Errorf("eval summary is required")
 	}
-	score, dims, err := domain.ScoreRunEvalDimensions(policy, parsed.Dimensions)
+	// The model's total is advisory (and may be fractional). The platform
+	// derives it from validated dimension scores using the configured weights.
+	ratings := make(map[string]int, len(parsed.Dimensions))
+	for id, value := range parsed.Dimensions {
+		if value == nil || *value < 0 || *value > 100 {
+			return domain.RunEvalResult{}, fmt.Errorf("dimension %q score must be a number between 0 and 100", id)
+		}
+		ratings[id] = int(math.Round(*value))
+	}
+	score, dims, err := domain.ScoreRunEvalDimensions(policy, ratings)
 	if err != nil {
 		return domain.RunEvalResult{}, err
 	}

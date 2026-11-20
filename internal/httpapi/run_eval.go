@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -94,8 +95,8 @@ func (h *runsHandlers) startRunEval(c *gin.Context) {
 		return
 	}
 	user, ok := h.repo.User(current.ID)
-	if !ok || strings.TrimSpace(user.CodeBuddyAPIKey) == "" {
-		c.JSON(http.StatusBadRequest, map[string]string{"error": "请先在个人配置中配置自己的 CodeBuddy API Key"})
+	if !ok {
+		c.JSON(http.StatusUnauthorized, map[string]string{"error": "请先登录后评测"})
 		return
 	}
 	if rec, busy := h.repo.ActiveRunEval(id); busy {
@@ -116,14 +117,11 @@ func (h *runsHandlers) startRunEval(c *gin.Context) {
 	if c.Request.ContentLength > 0 && !decode(c, &req) {
 		return
 	}
-	// Run evals run on CodeBuddy only: refuse a "codex:…" id instead of
-	// silently evaluating with the CodeBuddy default.
-	if engine, _ := assistantModelEngine(req.Model); engine != assistantEngineCodeBuddy {
-		c.JSON(http.StatusBadRequest, map[string]string{"error": "运行评测目前只支持 CodeBuddy 模型，请改选 CodeBuddy 模型"})
+	model, err := configuredAnalysisModel(req.Model, user)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
-	catalog := loadAssistantModels(c.Request.Context(), user.CodeBuddyInternetEnvironment)
-	model := assistantAllowedModel(req.Model, catalog)
 	project, _ := h.repo.Project(run.ExecutionContext.ProjectID)
 	rec := domain.RunEvalRecord{
 		ID:        "eval-" + randomID(),
@@ -451,7 +449,7 @@ func (h *runsHandlers) runEvalJob(ctx context.Context, job *runEvalJob, rec doma
 		return
 	}
 	emit := func(event string, payload any) { job.publish(event, payload) }
-	emit("thought", map[string]string{"kind": "thinking", "text": "正在整理本次 SOP 轨迹…"})
+	emit("thought", map[string]string{"kind": "status", "text": "正在整理本次 SOP 轨迹…"})
 	exec := currentRunEvalExec()
 	if exec == nil {
 		exec = h.executeRunEval
@@ -485,24 +483,45 @@ func (h *runsHandlers) executeRunEval(ctx context.Context, rec domain.RunEvalRec
 	facts := runeval.BuildFacts(run, catalog)
 	rec.Facts = facts
 	_ = h.repo.PutRunEval(rec)
-	emit("thought", map[string]string{"kind": "thinking", "text": "正在用 " + rec.Model + " 评测…"})
+	emit("thought", map[string]string{"kind": "status", "text": "正在用 " + rec.Model + " 评测…"})
 	system, prompt := runeval.BuildPrompt(rec.Policy, facts)
-	raw, _, err := runAssistantCLI(ctx, assistantCLIRequest{Prompt: prompt, Model: rec.Model, SystemPrompt: system, UserID: user.ID}, user, func(ev assistantStreamEvent) {
-		if emit == nil {
-			return
-		}
-		if text := strings.TrimSpace(ev.Text); text != "" {
-			emit("thought", map[string]string{"kind": ev.Kind, "text": text})
-		}
-	})
+	root, err := os.MkdirTemp("", "agentflow-run-eval-")
 	if err != nil {
 		return domain.RunEvalResult{}, err
+	}
+	defer os.RemoveAll(root)
+	raw, _, err := runAssistantCLI(ctx, assistantCLIRequest{Prompt: prompt, Model: rec.Model, SystemPrompt: system, UserID: user.ID, SessionRoot: root, ReviewOnly: true}, user, runEvalProgress(emit))
+	if err != nil {
+		return domain.RunEvalResult{}, err
+	}
+	if emit != nil {
+		emit("thought", map[string]string{"kind": "status", "text": "正在校验评测结果…"})
 	}
 	result, err := runeval.ParseModelResult(raw, rec.Policy)
 	if err != nil {
 		return domain.RunEvalResult{}, err
 	}
 	return result, nil
+}
+
+// Keep reasoning deltas intact and hide the report's JSON from the progress
+// view. The report is rendered only after it has passed result validation.
+func runEvalProgress(emit func(string, any)) func(assistantStreamEvent) {
+	answerStarted := false
+	return func(ev assistantStreamEvent) {
+		if emit == nil {
+			return
+		}
+		switch ev.Kind {
+		case "thinkingStart", "thinking", "status":
+			emit("thought", ev)
+		case "answer":
+			if !answerStarted {
+				answerStarted = true
+				emit("thought", assistantStreamEvent{Kind: "status", Text: "正在整理评测结论…"})
+			}
+		}
+	}
 }
 
 func (h *runsHandlers) failRunEval(rec domain.RunEvalRecord, message string) {

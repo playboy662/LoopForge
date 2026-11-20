@@ -50,6 +50,32 @@ func canResumeClarifySession(homeDir, sessionID string, sessionUserID, userID in
 	return false
 }
 
+func clarifyModelSessionRoot(homeDir, engine, sessionID string) string {
+	return filepath.Join(filepath.Dir(homeDir), "engines", engine, sessionID)
+}
+
+func canResumeClarifyModelSession(assessment domain.ClarificationAssessment, model, homeDir, sessionID string, userID int64) bool {
+	engine, _ := assistantModelEngine(model)
+	previous := assessment.SessionEngine
+	if previous == "" {
+		previous = assistantEngineCodeBuddy // legacy sessions were CodeBuddy-only
+	}
+	if previous != engine || !agentCLISessionValid(sessionID) || (assessment.SessionUserID != 0 && assessment.SessionUserID != userID) {
+		return false
+	}
+	if engine == assistantEngineCodeBuddy {
+		return canResumeClarifySession(homeDir, sessionID, assessment.SessionUserID, userID)
+	}
+	root := clarifyModelSessionRoot(homeDir, engine, sessionID)
+	if engine == assistantEngineCodex {
+		return readCodexThread(root, sessionID) != ""
+	}
+	if engine == assistantEngineClaude {
+		return assessment.SessionUserID == userID
+	}
+	return readAgentCLISession(root, engine, sessionID) != ""
+}
+
 // CodeBuddy can report a missing resume conversation but still exit with 0.
 // Inspect error envelopes as well as the OS exit status so the caller can
 // rebuild the conversation from stored history instead of retrying resume.

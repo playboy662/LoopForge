@@ -222,7 +222,7 @@ func TestStreamProtocolRemainingBranches(t *testing.T) {
 		`{"type":"thinking","thinking":"{\"summary\":\"hidden\",\"questions\":[]}"},` +
 		`{"type":"text","text":" visible text "},` +
 		`{"type":"tool_use","name":"Grep","input":{"pattern":"needle"}}]}}`
-	if got := clarifyStreamEvents(line); len(got) != 3 || got[2]["detail"] != "needle" {
+	if got := clarifyStreamEvents(line); len(got) != 3 || got[2].Detail != "needle" {
 		t.Fatalf("stream events = %#v", got)
 	}
 	if extractClarifyProtocolObject("{broken}") != nil {
@@ -566,7 +566,7 @@ func TestStreamExecuteDirectorySessionAndTerminalErrors(t *testing.T) {
 	}
 
 	var nilHandler *streamHandlers
-	nilHandler.rememberClarifySession("issue", "session", user.ID)
+	nilHandler.rememberClarifySession("issue", "session", user.ID, "default")
 }
 
 func TestStreamRunClarifyTurnOutputAndFailure(t *testing.T) {

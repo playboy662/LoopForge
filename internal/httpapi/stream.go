@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -374,9 +375,8 @@ func clarifyRepositorySource(repository domain.Repository, selectedBaseBranch st
 }
 
 func (h *streamHandlers) runChatClarify(c *gin.Context, issue domain.Issue, request chatClarifyRequest) {
-	if err := clarifyModelEngineError(request.Model); err != nil {
-		c.JSON(400, map[string]string{"error": err.Error()})
-		return
+	if request.Model == "" {
+		request.Model = issue.Clarification.Model
 	}
 	if strings.TrimSpace(issue.ID) != "" {
 		h.handleIssueClarify(c, issue, request)
@@ -413,6 +413,14 @@ func (h *streamHandlers) executeClarify(ctx context.Context, issue domain.Issue,
 	if responsibleErr != nil {
 		return nil, "", nil, responsibleErr
 	}
+	if len(request.History) == 0 {
+		request.History = historyToClarify(issue.Clarification.History)
+	}
+	modelID, err := configuredAnalysisModel(request.Model, responsible)
+	if err != nil {
+		return nil, "", nil, err
+	}
+	engine, _ := assistantModelEngine(modelID)
 	extras := clarifyRequestTexts(request)
 	hydrateClarifyIssueFromText(&issue, extras...)
 	workItemType := "需求"
@@ -475,7 +483,7 @@ func (h *streamHandlers) executeClarify(ctx context.Context, issue domain.Issue,
 	}
 	prompt.WriteString(clarifyRoundBudgetHint(clarifyAssistantRounds(request.History)))
 	prompt.WriteString("\n请基于以上对话继续澄清，只围绕「## 需求」本身，完成后调用 submit_clarification。")
-	cbPath, cbErr := resolveCodeBuddyBin()
+	cbPath, cbErr := resolveAssistantEngineBin(engine)
 	if cbErr != nil {
 		return nil, "", nil, cbErr
 	}
@@ -550,7 +558,7 @@ func (h *streamHandlers) executeClarify(ctx context.Context, issue domain.Issue,
 		sessionID = strings.TrimSpace(issue.Clarification.SessionID)
 	}
 	resume := sessionID != ""
-	if resume && !canResumeClarifySession(homeDir, sessionID, issue.Clarification.SessionUserID, responsible.ID) {
+	if resume && !canResumeClarifyModelSession(issue.Clarification, modelID, homeDir, sessionID, responsible.ID) {
 		emit("thought", map[string]string{"kind": "status", "text": "分析环境已变化，正在结合已有回答重新分析…"})
 		sessionID = ""
 	}
@@ -640,9 +648,12 @@ func (h *streamHandlers) executeClarify(ctx context.Context, issue domain.Issue,
 	if mcpHint := h.clarifyMCPInstructionsFor(issue, responsible, len(request.History) > 0, extras...); mcpHint != "" {
 		prompt.WriteString(mcpHint)
 	}
+	if engine != assistantEngineCodeBuddy && len(analyzedRepos) > 0 && workDir != homeDir {
+		toolSession.ClarifyRepositoryRoot = workDir
+		prompt.WriteString("\n\n## 只读代码工具\n使用 clarify_repository_read 读取当前分析仓库：path 为相对路径（默认 .，目录返回文件列表）；query 可递归搜索文件名及文本。禁止执行命令或修改文件。多仓库路径同上。")
+	}
 	userMsg := prompt.String()
 	clarifyID := fmt.Sprintf("clarify-%d", time.Now().UnixNano())
-	modelID := clarifyAllowedModel(request.Model)
 	credentials := runtime.RunCredentials{
 		CodeBuddy:          runtime.CodeBuddyCredential{APIKey: strings.TrimSpace(responsible.CodeBuddyAPIKey), InternetEnvironment: strings.TrimSpace(responsible.CodeBuddyInternetEnvironment)},
 		GitHTTPCredentials: h.repo.GitHTTPCredentialSecrets(ctx, responsible.ID),
@@ -659,14 +670,14 @@ func (h *streamHandlers) executeClarify(ctx context.Context, issue domain.Issue,
 		}
 	}
 	sessionContext := userMsg
-	h.rememberClarifySession(issue.ID, sessionID, responsible.ID)
+	h.rememberClarifySession(issue.ID, sessionID, responsible.ID, modelID)
 	if repoInfo == nil {
 		repoInfo = map[string]any{}
 	}
 	repoInfo["sessionId"] = sessionID
 	emit("open", map[string]any{"repository": repoInfo, "model": modelID, "sessionId": sessionID})
 	emit("thought", map[string]string{"kind": "status", "text": "正在分析需求…"})
-	turnOpts := clarifyTurnOpts{Native: true, MCPConfig: toolFiles.MCPConfig, Settings: toolFiles.Settings}
+	turnOpts := clarifyTurnOpts{Native: true, MCPConfig: toolFiles.MCPConfig, Settings: toolFiles.Settings, User: responsible}
 	jsonRetries := 0
 	var recoveredParsed any
 	var recoveredRaw string
@@ -675,9 +686,9 @@ func (h *streamHandlers) executeClarify(ctx context.Context, issue domain.Issue,
 		if captured != "" {
 			sessionID = captured
 			repoInfo["sessionId"] = sessionID
-			h.rememberClarifySession(issue.ID, sessionID, responsible.ID)
+			h.rememberClarifySession(issue.ID, sessionID, responsible.ID, modelID)
 		}
-		if err != nil && resume {
+		if err != nil && resume && !errors.Is(err, errAssistantCredentialRejected) && modelCtx.Err() == nil {
 			// Never reuse the missing/incompatible session ID when starting over.
 			sessionID = newAssistantSessionID()
 			fallbackPrompt := sessionContext
@@ -689,7 +700,7 @@ func (h *streamHandlers) executeClarify(ctx context.Context, issue domain.Issue,
 			if captured != "" {
 				sessionID = captured
 				repoInfo["sessionId"] = sessionID
-				h.rememberClarifySession(issue.ID, sessionID, responsible.ID)
+				h.rememberClarifySession(issue.ID, sessionID, responsible.ID, modelID)
 			}
 		}
 		if parsed, raw, ok := takeNativeClarification(toolSession, turnRaw); ok {
@@ -721,7 +732,7 @@ func (h *streamHandlers) executeClarify(ctx context.Context, issue domain.Issue,
 	}
 }
 
-func (h *streamHandlers) rememberClarifySession(issueID, sessionID string, userID int64) {
+func (h *streamHandlers) rememberClarifySession(issueID, sessionID string, userID int64, model string) {
 	if h == nil || h.repo == nil {
 		return
 	}
@@ -733,11 +744,30 @@ func (h *streamHandlers) rememberClarifySession(issueID, sessionID string, userI
 	_, _ = h.repo.PatchIssue(issueID, func(issue *domain.Issue) error {
 		issue.Clarification.SessionID = sessionID
 		issue.Clarification.SessionUserID = userID
+		issue.Clarification.Model = model
+		issue.Clarification.SessionEngine, _ = assistantModelEngine(model)
 		return nil
 	})
 }
 
 func (h *streamHandlers) runClarifyTurn(ctx context.Context, workDir, cbPath, model, prompt, runID, sessionID, homeDir string, resume bool, credentials runtime.RunCredentials, emit func(event string, payload any), opts clarifyTurnOpts) (any, string, string, error) {
+	if engine, _ := assistantModelEngine(model); engine != assistantEngineCodeBuddy {
+		// Keep model sessions isolated from assistant chats and other issues.
+		// Repository reads go through the scoped MCP gateway, never native shell.
+		root := clarifyModelSessionRoot(homeDir, engine, sessionID)
+		raw, sid, err := runAssistantCLI(ctx, assistantCLIRequest{
+			Prompt: prompt, Model: model, SessionID: sessionID, SessionRoot: root,
+			Resume: resume, Native: true, MCPConfig: opts.MCPConfig,
+			SystemPrompt: "你是只读需求分析师。仅通过本轮 MCP 工具读取需求和代码，并使用 submit_clarification 提交结论；不得修改文件或执行命令。",
+			Execute: func(ctx context.Context, dir string, command runtime.CommandSpec, creds runtime.RunCredentials, sink runtime.EventSink) (string, error) {
+				if engine == assistantEngineClaude {
+					command.Argv = replaceArgValue(command.Argv, "--disallowedTools", claudeAssistantDisallowedTools+",Read,Grep,Glob,Task")
+				}
+				return runtime.ExecuteLocalCommand(ctx, dir, command, creds, sink)
+			},
+		}, opts.User, clarifyProgress(emit))
+		return nil, raw, sid, err
+	}
 	command, err := prepareClarifyCommandWith(clarifyCommandOpts{
 		Bin: cbPath, Model: model, Prompt: prompt, RunID: runID, SessionID: sessionID, Resume: resume,
 		Native: opts.Native, MCPConfig: opts.MCPConfig, Settings: opts.Settings, SubmitOnly: opts.SubmitOnly,
@@ -774,6 +804,20 @@ func (h *streamHandlers) runClarifyTurn(ctx context.Context, workDir, cbPath, mo
 	return nil, strings.TrimSpace(output), captured, nil
 }
 
+// Keep stream boundaries and tool identity intact for incremental rendering.
+// In particular, a tool's second notification adds its completed arguments.
+func clarifyProgress(emit func(string, any)) func(assistantStreamEvent) {
+	return func(ev assistantStreamEvent) {
+		if emit == nil {
+			return
+		}
+		switch ev.Kind {
+		case "thinkingStart", "thinking", "answer", "status", "tool", "toolDone":
+			emit("thought", ev)
+		}
+	}
+}
+
 func takeNativeClarification(session *AgentToolSession, turnRaw string) (any, string, bool) {
 	if session == nil {
 		return nil, turnRaw, false
@@ -798,6 +842,7 @@ type clarifyTurnOpts struct {
 	Native              bool
 	MCPConfig, Settings string
 	SubmitOnly          bool
+	User                domain.User
 }
 
 // clarifyStreamEvents decodes a single stream-json line into zero or more
@@ -805,11 +850,12 @@ type clarifyTurnOpts struct {
 // "thinking" and its tool invocations (Read / Grep / Glob) so the user can see
 // what the analyst is doing. Anything else (raw tool results, final result,
 // system bookkeeping) is ignored here.
-func clarifyStreamEvents(line string) []map[string]string {
+func clarifyStreamEvents(line string) []assistantStreamEvent {
 	var evt struct {
 		Type    string `json:"type"`
 		Message struct {
 			Content []struct {
+				ID       string          `json:"id"`
 				Type     string          `json:"type"`
 				Thinking string          `json:"thinking"`
 				Text     string          `json:"text"`
@@ -824,19 +870,21 @@ func clarifyStreamEvents(line string) []map[string]string {
 	if evt.Type != "assistant" {
 		return nil
 	}
-	var out []map[string]string
+	var out []assistantStreamEvent
 	for _, c := range evt.Message.Content {
 		switch c.Type {
 		case "thinking":
 			if t := strings.TrimSpace(c.Thinking); t != "" && !clarifyThoughtShouldHide(t) {
-				out = append(out, map[string]string{"kind": "thinking", "text": t})
+				out = append(out, assistantStreamEvent{Kind: "thinking", Text: t, Full: true})
 			}
 		case "text":
 			if t := strings.TrimSpace(c.Text); t != "" && !clarifyThoughtShouldHide(t) {
-				out = append(out, map[string]string{"kind": "thinking", "text": t})
+				out = append(out, assistantStreamEvent{Kind: "answer", Text: t, Full: true})
 			}
 		case "tool_use":
-			out = append(out, map[string]string{"kind": "tool", "tool": c.Name, "detail": clarifyToolDetail(c.Name, c.Input)})
+			if !assistantProtocolTool(c.Name) {
+				out = append(out, assistantStreamEvent{Kind: "tool", Tool: c.Name, Detail: clarifyToolDetail(c.Name, c.Input), ID: c.ID})
+			}
 		}
 	}
 	return out
@@ -899,6 +947,16 @@ func clarifyToolDetail(name string, input json.RawMessage) string {
 			return strings.TrimSpace(v)
 		}
 		return ""
+	}
+	if assistantSessionToolName(name) == "clarify_repository_read" {
+		path := str("path")
+		if path == "" {
+			path = "."
+		}
+		if query := str("query"); query != "" {
+			return query + " @ " + path
+		}
+		return path
 	}
 	if p := str("file_path"); p != "" {
 		return filepath.Base(p)

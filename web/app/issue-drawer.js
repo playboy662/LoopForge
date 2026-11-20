@@ -295,25 +295,58 @@ function retryIssueClarifyTurn(){
 }
 function issueClarifyThinking(ev,issueId){
   const job=issueId?issueClarifyJobs.get(issueId):null;
-  if(job)job.thinking.push(ev);
+  if(job&&!mergeClarifyThought(job.thinking,ev))return;
   const box=$('#issueClarifyThinking');if(!box)return;
-  if(job&&state.issueDetailData?.issue?.id!==issueId)return;
-  appendIssueClarifyThought(box,ev);
+  if(issueId&&state.issueDetailData?.issue?.id!==issueId)return;
+  if(job)renderIssueClarifyThoughts(box,job.thinking);
+  else appendIssueClarifyThought(box,ev);
+}
+function mergeClarifyThought(items,ev){
+  const last=items.at(-1),kind=ev.kind||'status';
+  if(kind==='thinkingStart'){
+    if(last?.kind!=='thinking'||last.text)items.push({kind:'thinking',text:''});
+  }else if(kind==='thinking'||kind==='answer'){
+    if(typeof ev.text!=='string'||!ev.text)return false;
+    if(last?.kind===kind&&(!ev.full||ev.text.startsWith(last.text))){
+      last.text=ev.full?ev.text:last.text+ev.text;
+      if(last.text.length>16000)last.text='…'+last.text.slice(-16000);
+    }else items.push({...ev,text:ev.text.slice(-16000)});
+  }else if(kind==='tool'){
+    const previous=ev.id?items.find(item=>item.kind==='tool'&&item.id===ev.id):null;
+    if(previous)Object.assign(previous,ev,{detail:ev.detail||previous.detail});
+    else if(!ev.id&&last?.kind==='tool'&&last.tool===ev.tool&&last.detail===ev.detail)return false;
+    else items.push({...ev});
+  }else if(kind==='toolDone'){
+    if(!ev.id)return false;
+    const previous=items.find(item=>item.kind==='tool'&&item.id===ev.id);
+    if(!previous)return false;
+    Object.assign(previous,{done:true,failed:!!ev.failed});
+  }else if(kind==='status'&&ev.text){
+    if(last?.kind===kind&&last.text===ev.text)return false;
+    items.push({...ev});
+  }else return false;
+  if(items.length>80)items.splice(0,items.length-80);
+  return true;
+}
+function renderIssueClarifyThoughts(box,items){
+  box._clarifyThoughts=items;
+  box.innerHTML=items.filter(ev=>ev.kind==='tool'||ev.text&&!clarifyThoughtShouldHide(ev.text)).map(ev=>{
+    const tool=ev.kind==='tool',status=ev.kind==='status';
+    const text=tool?escapeHTML(`${clarifyToolLabel(ev.tool)}${ev.detail?' · '+ev.detail:''}`):status?escapeHTML(ev.text):renderMarkdown(ev.text);
+    return `<div class="think-row ${tool?'think-tool':status?'think-status':'think-idea'}"><span class="think-icon">${tool?(ev.failed?'⚠':ev.done?'✓':'🔍'):status?'⏳':'💭'}</span><div class="think-text">${text}</div></div>`;
+  }).join('');
+  box.hidden=!box.innerHTML;
+  box.scrollTop=box.scrollHeight;
 }
 function appendIssueClarifyThought(box,ev){
-  if(ev.kind!=='tool'&&clarifyThoughtShouldHide(ev&&ev.text))return;
-  box.hidden=false;
-  const row=document.createElement('div');
-  row.className=`think-row ${ev.kind==='tool'?'think-tool':(ev.kind==='status'?'think-status':'think-idea')}`;
-  row.innerHTML=`<span class="think-icon">${ev.kind==='tool'?'🔍':(ev.kind==='status'?'⏳':'💭')}</span><span class="think-text">${escapeHTML(ev.kind==='tool'?`${clarifyToolLabel(ev.tool)}${ev.detail?' · '+ev.detail:''}`:(ev.text||''))}</span>`;
-  box.appendChild(row);box.scrollTop=box.scrollHeight;
+  const items=box._clarifyThoughts||(box._clarifyThoughts=[]);
+  if(mergeClarifyThought(items,ev))renderIssueClarifyThoughts(box,items);
 }
 function restoreIssueClarifyThinking(issueId){
   const job=issueClarifyJobs.get(issueId),box=$('#issueClarifyThinking');
   if(!box)return;
   if(job){
-    box.innerHTML='';
-    job.thinking.forEach(ev=>appendIssueClarifyThought(box,ev));
+    renderIssueClarifyThoughts(box,job.thinking);
   }
   const button=$('[data-continue-clarify]'),stop=$('[data-stop-clarify]'),hint=$('#issueClarifyHint');
   if(button){button.disabled=true;button.textContent='分析中…'}
@@ -331,7 +364,7 @@ async function attachIssueClarifyStream(issueId){
   const existing=issueClarifyJobs.get(issueId);
   if(existing?.abort&&!existing.abort.signal.aborted&&existing.attached)return;
   const abort=new AbortController();
-  const job={abort,thinking:existing?.thinking||[],attached:true};
+  const job={abort,thinking:existing?.thinking||[],lastSeq:existing?.lastSeq||0,startedAt:existing?.startedAt,attached:true};
   issueClarifyJobs.set(issueId,{...job});
   renderIssues();
   try{
@@ -393,11 +426,23 @@ async function applyIssueClarifyDone(issueId,data){
 }
 async function consumeIssueClarifyStream(resp,issueId){
   const reader=resp.body.getReader(),decoder=new TextDecoder();let buffer='',done=null;
-  const dispatch=(event,dataStr)=>{let payload={};try{payload=JSON.parse(dataStr)}catch{}if(event==='thought')issueClarifyThinking(payload,issueId);else if(event==='done')done=payload;else if(event==='error')done={error:payload.error||'分析失败'}};
+  const dispatch=(event,dataStr,seq)=>{
+    let payload={};try{payload=JSON.parse(dataStr)}catch{}
+    const job=issueClarifyJobs.get(issueId);
+    if(event==='job'&&job){
+      if(job.startedAt&&job.startedAt!==payload.startedAt){job.thinking=[];job.lastSeq=0}
+      job.startedAt=payload.startedAt;
+      return;
+    }
+    if(seq&&job){if(seq<=job.lastSeq)return;job.lastSeq=seq}
+    if(event==='thought')issueClarifyThinking(payload,issueId);
+    else if(event==='done')done=payload;
+    else if(event==='error')done={error:payload.error||'分析失败'};
+  };
   for(;;){
     const next=await reader.read();if(next.done)break;
     buffer+=decoder.decode(next.value,{stream:true});let idx;
-    while((idx=buffer.indexOf('\n\n'))>=0){const chunk=buffer.slice(0,idx);buffer=buffer.slice(idx+2);let event='message',data='';chunk.split('\n').forEach(line=>{if(line.startsWith('event:'))event=line.slice(6).trim();else if(line.startsWith('data:'))data+=line.slice(5).trim()});if(data)dispatch(event,data)}
+    while((idx=buffer.indexOf('\n\n'))>=0){const chunk=buffer.slice(0,idx);buffer=buffer.slice(idx+2);let event='message',data='',seq=0;chunk.split('\n').forEach(line=>{if(line.startsWith('id:'))seq=Number(line.slice(3).trim())||0;else if(line.startsWith('event:'))event=line.slice(6).trim();else if(line.startsWith('data:'))data+=line.slice(5).trim()});if(data)dispatch(event,data,seq)}
   }
   return done||{error:'分析未返回结果'};
 }

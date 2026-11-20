@@ -1,6 +1,7 @@
 package runeval
 
 import (
+	"fmt"
 	"testing"
 	"time"
 
@@ -89,6 +90,32 @@ func TestParseModelResultScoresByWeight(t *testing.T) {
 	}
 	if len(got.Recommendations) != 1 || !got.Recommendations[0].Applyable() {
 		t.Fatalf("recommendations = %+v", got.Recommendations)
+	}
+}
+
+func TestParseModelResultAcceptsFractionalScores(t *testing.T) {
+	policy := domain.RunEvalPolicy{Threshold: 70, Dimensions: []domain.RunEvalDimension{{ID: "control", Weight: 1}}}
+	for _, tc := range []struct {
+		rating string
+		want   int
+	}{
+		{"66.4", 66}, {"69.6", 70}, {"80", 80}, {"100.0", 100},
+	} {
+		raw := fmt.Sprintf(`{"score":66.4,"summary":"评测结论","dimensions":{"control":%s}}`, tc.rating)
+		result, err := ParseModelResult(raw, policy)
+		if err != nil || result.Score != tc.want || result.Dimensions["control"] != tc.want || result.Passed != (tc.want >= 70) {
+			t.Fatalf("rating=%s result=%+v err=%v", tc.rating, result, err)
+		}
+	}
+}
+
+func TestParseModelResultRejectsInvalidFractionalRatings(t *testing.T) {
+	policy := domain.RunEvalPolicy{Dimensions: []domain.RunEvalDimension{{ID: "control", Weight: 1}}}
+	for _, value := range []string{"100.4", "-0.1", "null", `"66.4"`} {
+		raw := fmt.Sprintf(`{"summary":"评测结论","dimensions":{"control":%s}}`, value)
+		if _, err := ParseModelResult(raw, policy); err == nil {
+			t.Fatalf("invalid rating %s accepted", value)
+		}
 	}
 }
 

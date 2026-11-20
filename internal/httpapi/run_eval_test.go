@@ -39,6 +39,29 @@ func TestRunEvalRequiresTerminalRunAndUserKey(t *testing.T) {
 	requestJSONAuthed[map[string]string](t, h, nokey, http.MethodPost, "/api/runs/run-done/eval", map[string]any{}, http.StatusBadRequest)
 }
 
+func TestRunEvalProgressKeepsReasoningAndHidesReportJSON(t *testing.T) {
+	var events []assistantStreamEvent
+	progress := runEvalProgress(func(name string, payload any) {
+		if name != "thought" {
+			t.Fatalf("event name=%q", name)
+		}
+		events = append(events, payload.(assistantStreamEvent))
+	})
+	for _, event := range []assistantStreamEvent{
+		{Kind: "thinkingStart"},
+		{Kind: "thinking", Text: "逐项"},
+		{Kind: "thinking", Text: " 检查\n"},
+		{Kind: "answer", Text: `{"score":`},
+		{Kind: "answer", Text: "66.4}"},
+	} {
+		progress(event)
+	}
+	if len(events) != 4 || events[2].Text != " 检查\n" || events[3].Kind != "status" {
+		t.Fatalf("progress events=%+v", events)
+	}
+	runEvalProgress(nil)(assistantStreamEvent{Kind: "answer", Text: "{}"})
+}
+
 func TestRunEvalScoresAndAppliesNodePatch(t *testing.T) {
 	t.Setenv("AGENTFLOW_SESSION_SECRET", "run-eval-session-secret")
 	h, store, user := newRunEvalHarness(t)

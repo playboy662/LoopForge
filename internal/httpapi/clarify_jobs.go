@@ -137,7 +137,7 @@ func (h *streamHandlers) resumeClarifyIssue(issueID string) {
 	if h.jobRunning(issueID) {
 		return
 	}
-	req := chatClarifyRequest{Message: domain.ClarificationKickoff, History: historyToClarify(issue.Clarification.History)}
+	req := chatClarifyRequest{Message: domain.ClarificationKickoff, Model: issue.Clarification.Model, History: historyToClarify(issue.Clarification.History)}
 	if _, err := h.ensureClarifyJob(issue, req); err != nil {
 		log.Printf("resume clarify %s: %v", issueID, err)
 	}
@@ -398,6 +398,9 @@ func (h *streamHandlers) markIssueAnalyzing(issueID, message string, request cha
 			history = append(history, domain.ClarificationMessage{Role: "user", Content: message})
 		}
 		issue.Clarification.History = history
+		if request.Model != "" {
+			issue.Clarification.Model = request.Model
+		}
 		issue.Clarification.Status = domain.ClarificationAnalyzing
 		return nil
 	})
@@ -471,7 +474,32 @@ func (j *clarifyJob) publish(event string, payload any) {
 	j.seq++
 	item := clarifyJobEvent{Seq: j.seq, Type: event, Payload: payload}
 	if event == "thought" || event == "open" {
-		j.events = append(j.events, item)
+		// Reconnects replay complete text blocks instead of only the last 80
+		// tokens. Live subscribers still receive the original incremental event.
+		snapshot := item
+		merged := false
+		if ev, ok := payload.(assistantStreamEvent); ok && (ev.Kind == "thinking" || ev.Kind == "answer") {
+			if len(j.events) > 0 {
+				last := &j.events[len(j.events)-1]
+				if previous, ok := last.Payload.(assistantStreamEvent); ok && last.Type == "thought" &&
+					(previous.Kind == "thinkingStart" && ev.Kind == "thinking" || previous.Kind == ev.Kind && (!ev.Full || strings.HasPrefix(ev.Text, previous.Text))) {
+					if !ev.Full {
+						ev.Text = previous.Text + ev.Text
+					}
+					merged = true
+				}
+			}
+			if runes := []rune(ev.Text); len(runes) > 16000 {
+				ev.Text = string(runes[len(runes)-16000:])
+			}
+			ev.Full = true
+			snapshot.Payload = ev
+		}
+		if merged {
+			j.events[len(j.events)-1] = snapshot
+		} else {
+			j.events = append(j.events, snapshot)
+		}
 		if len(j.events) > clarifyThoughtCap {
 			j.events = j.events[len(j.events)-clarifyThoughtCap:]
 		}
@@ -896,7 +924,7 @@ func (h *streamHandlers) attachIssueClarify(c *gin.Context, issue domain.Issue) 
 			return
 		}
 		if issue.Clarification.Status == domain.ClarificationAnalyzing {
-			req := chatClarifyRequest{Message: domain.ClarificationKickoff, History: historyToClarify(issue.Clarification.History)}
+			req := chatClarifyRequest{Message: domain.ClarificationKickoff, Model: issue.Clarification.Model, History: historyToClarify(issue.Clarification.History)}
 			var err error
 			job, err = h.ensureClarifyJob(issue, req)
 			if err != nil {
@@ -990,22 +1018,27 @@ func (h *streamHandlers) streamClarifyJob(c *gin.Context, job *clarifyJob) {
 	if ch != nil {
 		defer job.unsubscribe(ch)
 	}
-	send := func(event string, payload any) {
+	send := func(event string, payload any, seq ...int) {
 		data, err := json.Marshal(payload)
 		if err != nil {
 			return
 		}
+		if len(seq) > 0 {
+			fmt.Fprintf(w, "id: %d\n", seq[0])
+		}
 		fmt.Fprintf(w, "event: %s\ndata: %s\n\n", event, data)
 		c.Writer.Flush()
 	}
-	if strings.HasPrefix(job.issueID, composerJobPrefix) {
-		send("job", map[string]string{"jobId": composerPublicJobID(job.issueID), "startedAt": job.startedAt.Format(time.RFC3339Nano)})
+	jobID := job.issueID
+	if strings.HasPrefix(jobID, composerJobPrefix) {
+		jobID = composerPublicJobID(jobID)
 	}
+	send("job", map[string]string{"jobId": jobID, "startedAt": job.startedAt.Format(time.RFC3339Nano)})
 	for _, item := range replay {
 		if item.Seq <= after {
 			continue
 		}
-		send(item.Type, item.Payload)
+		send(item.Type, item.Payload, item.Seq)
 	}
 	if done {
 		if errMsg != "" {
@@ -1039,7 +1072,7 @@ func (h *streamHandlers) streamClarifyJob(c *gin.Context, job *clarifyJob) {
 			if item.Seq <= after {
 				continue
 			}
-			send(item.Type, item.Payload)
+			send(item.Type, item.Payload, item.Seq)
 			if item.Type == "done" || item.Type == "error" {
 				return
 			}

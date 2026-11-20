@@ -65,8 +65,10 @@ type AgentToolSession struct {
 	ProjectID         string
 	Mode              AgentToolMode
 	IssueID           string
-	WorkspaceToken    string
-	RunID             string
+	// ClarifyRepositoryRoot is the sole filesystem scope of read-only analysis.
+	ClarifyRepositoryRoot string
+	WorkspaceToken        string
+	RunID                 string
 	// ChatSessionID/ChatOwnerID identify the ordinary conversation this turn
 	// belongs to, so Main Bot can open and bind a temporary workspace there.
 	ChatSessionID string

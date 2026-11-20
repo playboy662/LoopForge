@@ -156,6 +156,8 @@ type ClarificationAssessment struct {
 	Questions            []ClarificationQuestion `json:"questions,omitempty"`
 	SessionID            string                  `json:"sessionId,omitempty"`
 	SessionUserID        int64                   `json:"sessionUserId,omitempty"`
+	Model                string                  `json:"model,omitempty"`
+	SessionEngine        string                  `json:"sessionEngine,omitempty"`
 	WriteBackStatus      string                  `json:"writeBackStatus,omitempty"` // pending, succeeded, failed, skipped
 	WriteBackError       string                  `json:"writeBackError,omitempty"`
 	WriteBackFingerprint string                  `json:"writeBackFingerprint,omitempty"`

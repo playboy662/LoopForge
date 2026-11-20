@@ -101,8 +101,7 @@ function scheduleModelAPI(){return window.AgentFlowAssistantModels}
 function selectedClarifyModel(){
   const api=window.AgentFlowAssistantModels;
   const stored=localStorage.getItem('agentflow.clarifyModel')||'';
-  // Clarification runs on CodeBuddy only; a saved "codex:…" id falls back.
-  if(api?.codeBuddyModel)return api.codeBuddyModel(stored);
+  if(api?.configuredModel)return api.configuredModel(stored);
   return stored||(api&&api.DEFAULT)||'default';
 }
 function setClarifyModel(id){
@@ -118,7 +117,7 @@ function bindClarifyModelPicker(host){
   if(!host)return;
   const api=window.AgentFlowAssistantModels,toggle=host.querySelector('[data-model-toggle]'),menu=host.querySelector('.ai-model-menu');
   if(!api||!toggle||!menu)return;
-  const paint=()=>{const keep=selectedClarifyModel();const hidden=host.querySelector('[data-clarify-model-value]');if(hidden)hidden.value=keep;api.paint(toggle,keep)};
+  const paint=()=>{const keep=selectedClarifyModel();const hidden=host.querySelector('[data-clarify-model-value]');if(hidden)hidden.value=keep;api.paintConfigured(toggle,keep)};
   api.load?.().then(paint).catch(paint);
   if(!bindClarifyModelPicker.docBound){
     bindClarifyModelPicker.docBound=true;
@@ -140,9 +139,9 @@ function bindClarifyModelPicker(host){
     menu.hidden=!open;
     toggle.setAttribute('aria-expanded',open?'true':'false');
     if(open){
-      api.renderCodeBuddyList(menu, selectedClarifyModel(), id=>{
+      api.renderConfiguredList(menu, selectedClarifyModel(), id=>{
         setClarifyModel(id);
-        api.paint(toggle, id);
+        api.paintConfigured(toggle, id);
         menu.hidden=true;
         toggle.setAttribute('aria-expanded','false');
       });

@@ -2405,11 +2405,16 @@ html[data-theme="dark"] .agent-studio-v2{box-shadow:0 18px 56px rgba(0,0,0,.42),
 }
 .thought-item {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 10px;
   font-size: 12px;
   color: var(--v3-ink-2);
   line-height: 1.4;
+}
+.thought-text {
+  min-width: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 .thought-dot {
   width: 6px;
@@ -2417,6 +2422,7 @@ html[data-theme="dark"] .agent-studio-v2{box-shadow:0 18px 56px rgba(0,0,0,.42),
   border-radius: 50%;
   background: var(--v3-accent);
   flex-shrink: 0;
+  margin-top: 5px;
 }
 
 /* 错误卡片 */

@@ -1668,12 +1668,14 @@ textarea.pa-input{height:auto;min-height:76px;padding:9px 11px;resize:vertical;l
 .req-thinking-now{display:flex;align-items:center;gap:8px;font-size:13px;line-height:1.45;color:var(--blue)}
 .req-thinking-stream[hidden],.req-thinking-now[hidden]{display:none}
 .req-thinking-now .think-text{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
-.req-thinking-stream .think-row{display:flex;align-items:flex-start;gap:8px;padding:3px 0;font-size:12.5px;line-height:1.5;animation:thinkFade .25s ease}
+.req-thinking-stream .think-row{display:flex;align-items:flex-start;gap:8px;padding:3px 0;font-size:12.5px;line-height:1.5}
 .req-thinking-stream .think-icon{flex:0 0 auto;opacity:.8}
+.req-thinking-stream .think-text{min-width:0;overflow-wrap:anywhere}
+.req-thinking-stream .think-text p{margin:0;white-space:pre-wrap}
+.req-thinking-stream .think-text p+p{margin-top:6px}
 .req-thinking-stream .think-status .think-text{color:var(--blue)}
 .req-clarify-retry{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin:0 0 12px}
 .req-thinking-stream .think-tool .think-text{color:var(--text);font-weight:600}
-@keyframes thinkFade{from{opacity:0;transform:translateY(3px)}to{opacity:1;transform:none}}
 .req-error{margin:0;font-size:13px;line-height:1.5;color:var(--red,#e11d48)}
 .req-alert{display:flex;align-items:flex-start;gap:10px;margin:0 0 14px;padding:11px 13px;border-radius:10px;font-size:12.5px;line-height:1.55}
 .req-alert-icon{flex:0 0 auto;font-size:15px;line-height:1.3}

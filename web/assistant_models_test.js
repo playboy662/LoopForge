@@ -75,7 +75,7 @@ const ctx = {
         { id: 'model-b', name: 'Model B', family: 'glm', credits: 'x0.06' },
         { id: 'codex:gpt-5.5', name: 'GPT-5.5', family: 'gpt', engine: 'codex' },
       ],
-      engines: [{ id: 'codebuddy', name: 'CodeBuddy' }, { id: 'codex', name: 'Codex' }],
+      engines: [{ id: 'codebuddy', name: 'CodeBuddy', configured: true, personalConfigured: false }, { id: 'codex', name: 'Codex', configured: true, personalConfigured: true }],
     }),
   }),
 };
@@ -134,8 +134,7 @@ vm.runInContext(moduleSource, ctx);
   await api.load();
   assert.equal(api.catalog().default, 'model-b');
   assert.equal(api.catalog().models.length, 3, 'catalog adopts /api/assistant/models');
-  // Issue #228: clarification runs on CodeBuddy only, so CodeBuddy-only
-  // pickers hide other CLIs and a saved "codex:…" id falls back.
+  // Bot and preview remain CodeBuddy-only; analysis uses the personal catalog.
   assert.deepEqual(api.codeBuddyModels().map(m => m.id), ['model-a', 'model-b']);
   assert.equal(api.codeBuddyModel('codex:gpt-5.5'), 'default');
   assert.equal(api.codeBuddyModel(''), 'default');
@@ -154,18 +153,23 @@ vm.runInContext(moduleSource, ctx);
 
   toggle.onclick({ stopPropagation() {} });
   assert.equal(menu.hidden, false, 'clicking 选择模型 must open the menu');
-  assert.equal(menu.children.length, 2, 'menu lists only CodeBuddy models');
-  assert.ok(!menu.children.some(opt => opt.dataset.id.startsWith('codex:')), 'clarify menu hides Codex models');
+  assert.equal(menu.children.length, 3, 'menu lists configured CLI catalogs');
+  assert.ok(menu.children.some(opt => opt.dataset.id.startsWith('codex:')), 'clarify menu offers Codex models');
   assert.ok(menu.children[0].className.includes('is-active'), 'stored model is marked active');
 
   menu.children[1].onclick();
   assert.equal(store.get('agentflow.clarifyModel'), 'model-b');
   assert.equal(input.value, 'model-b');
   assert.equal(menu.hidden, true);
-  assert.equal(label.textContent, 'Model B');
+  assert.equal(label.textContent, 'CodeBuddy · Model B');
 
-  // A Codex id saved before this fix must not reach chat-clarify.
+  // Preserve the real CLI prefix on selection and reload.
   store.set('agentflow.clarifyModel', 'codex:gpt-5.5');
-  assert.equal(ctx.selectedClarifyModel(), 'default');
+  assert.equal(ctx.selectedClarifyModel(), 'codex:gpt-5.5');
+  assert.equal(api.configuredModel(''), 'codex:gpt-5.5');
+  toggle.onclick({stopPropagation() {}});
+  menu.children[2].onclick();
+  assert.equal(input.value, 'codex:gpt-5.5');
+  assert.equal(label.textContent, 'Codex · GPT-5.5');
   console.log('assistant models ok');
 })().catch(err => { console.error(err); process.exit(1); });
