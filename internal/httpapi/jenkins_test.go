@@ -13,10 +13,12 @@ import (
 )
 
 func TestJenkinsConfigurationAndSOPDispatch(t *testing.T) {
-	t.Setenv("AGENTFLOW_AUTH_REQUIRED", "false")
+	t.Setenv("AGENTFLOW_AUTH_REQUIRED", "true")
 	f := cvBNewHTTPFixture(t)
+	t.Setenv("AGENTFLOW_PLATFORM_ADMINS", f.user.LoginName)
 	const fakeToken = "jenkins-fixture-token"
 	var triggers atomic.Int32
+	var dropResponse atomic.Bool
 	controller := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		user, token, ok := r.BasicAuth()
 		if !ok || user != "delivery" || token != fakeToken {
@@ -26,9 +28,19 @@ func TestJenkinsConfigurationAndSOPDispatch(t *testing.T) {
 		switch {
 		case r.Method == http.MethodGet && r.URL.Path == "/ci/api/json":
 			fmt.Fprint(w, `{"jobs":[{"name":"team","jobs":[{"name":"deploy","buildable":true},{"name":"disabled","buildable":false}]}]}`)
+		case r.Method == http.MethodGet && r.URL.Path == "/ci/job/team/job/deploy/api/json":
+			fmt.Fprint(w, `{"buildable":true,"property":[{"parameterDefinitions":[{"name":"BRANCH","required":true},{"name":"ENV"}]}]}`)
+		case r.Method == http.MethodGet && r.URL.Path == "/ci/job/team/job/disabled/api/json":
+			fmt.Fprint(w, `{"buildable":false}`)
 		case r.Method == http.MethodPost && r.URL.Path == "/ci/job/team/job/deploy/buildWithParameters":
 			triggers.Add(1)
-			if r.FormValue("BRANCH") != "test" {
+			if dropResponse.Load() {
+				if conn, _, err := w.(http.Hijacker).Hijack(); err == nil {
+					_ = conn.Close()
+				}
+				return
+			}
+			if r.FormValue("BRANCH") != "test" || r.FormValue("ENV") != "qa" {
 				w.WriteHeader(http.StatusBadRequest)
 				return
 			}
@@ -39,6 +51,7 @@ func TestJenkinsConfigurationAndSOPDispatch(t *testing.T) {
 		}
 	}))
 	defer controller.Close()
+	t.Setenv("AGENTFLOW_JENKINS_HTTP_ALLOWED_HOSTS", strings.TrimPrefix(controller.URL, "http://"))
 	const projectID = "platform"
 	const base = "/api/projects/" + projectID + "/jenkins"
 	request := func(method, path string, body any, want int) string {
@@ -52,16 +65,24 @@ func TestJenkinsConfigurationAndSOPDispatch(t *testing.T) {
 		}
 		return strings.TrimSpace(res.Body.String())
 	}
+	if response := cvBRequest(t, f, http.MethodGet, "/api/platform/jenkins", nil, false); response.Code != http.StatusUnauthorized {
+		t.Fatalf("unauthenticated Jenkins management: HTTP %d", response.Code)
+	}
 	request(http.MethodPut, "/api/platform/jenkins", map[string]any{
 		"id": "controller", "name": "Jenkins", "url": controller.URL + "/ci",
-		"username": "delivery", "token": fakeToken, "projectIds": []string{projectID},
+		"username": "delivery", "token": fakeToken, "allProjects": true,
 	}, http.StatusOK)
+	if options := request(http.MethodGet, base+"/connections", nil, http.StatusOK); options != `[{"id":"controller","name":"Jenkins"}]` {
+		t.Fatalf("connections = %s", options)
+	}
 	if jobs := request(http.MethodGet, base+"/jobs?connectionId=controller", nil, http.StatusOK); jobs != `["team/deploy"]` {
 		t.Fatalf("jobs = %s", jobs)
 	}
-	binding := map[string]string{"id": "deploy-test", "connectionId": "controller", "service": "后端", "environment": "测试", "job": "team/disabled"}
+	binding := map[string]any{"id": "deploy-test", "connectionId": "controller", "service": "后端", "environment": "测试", "job": "team/disabled"}
 	request(http.MethodPut, base+"/bindings", binding, http.StatusBadRequest)
-	binding["job"], binding["parameter"], binding["value"] = "team/deploy", "BRANCH", "test"
+	binding["job"] = "team/deploy"
+	request(http.MethodPut, base+"/bindings", binding, http.StatusBadRequest)
+	binding["parameters"] = map[string]string{"BRANCH": "test", "ENV": "qa"}
 	request(http.MethodPut, base+"/bindings", binding, http.StatusOK)
 
 	wf := domain.WorkflowDefinition{
@@ -71,25 +92,98 @@ func TestJenkinsConfigurationAndSOPDispatch(t *testing.T) {
 	if err := f.s.PutWorkflow(wf); err != nil {
 		t.Fatal(err)
 	}
-	run, err := f.e.StartWithExecutionContext(wf.ID, "发布", domain.RepositoryContext{}, domain.TelemetryContext{ProjectID: projectID})
-	if err != nil {
+	start := func(workflowID string) domain.Run {
+		t.Helper()
+		run, err := f.e.StartWithExecutionContext(workflowID, "发布", domain.RepositoryContext{}, domain.TelemetryContext{ProjectID: projectID, ResponsibleUserID: f.user.ID})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return run
+	}
+	wait := func(runID, status string) domain.Run {
+		t.Helper()
+		deadline := time.Now().Add(5 * time.Second)
+		var current domain.Run
+		for time.Now().Before(deadline) {
+			current, _ = f.s.RunState(runID)
+			if current.Status == status {
+				return current
+			}
+			time.Sleep(20 * time.Millisecond)
+		}
+		t.Fatalf("SOP %s wanted %s, got %s, node %+v", runID, status, current.Status, current.Nodes["deploy"])
+		return current
+	}
+	run := start(wf.ID)
+	result := wait(run.ID, "succeeded").Nodes["deploy"]
+	if result.JenkinsURL != controller.URL+"/ci/queue/item/42/" || !result.JenkinsQueued || triggers.Load() != 1 {
+		t.Fatalf("Jenkins result = %+v; calls = %d", result, triggers.Load())
+	}
+	dropResponse.Store(true)
+	run = start(wf.ID)
+	result = wait(run.ID, "failed").Nodes["deploy"]
+	if !strings.Contains(result.Error, "接单状态待确认") || triggers.Load() != 2 {
+		t.Fatalf("ambiguous result = %+v; calls = %d", result, triggers.Load())
+	}
+	if err := f.e.Retry(run.ID, "deploy", "", ""); err != nil {
 		t.Fatal(err)
 	}
-	deadline := time.Now().Add(5 * time.Second)
-	for time.Now().Before(deadline) {
-		if current, ok := f.s.RunState(run.ID); ok {
-			n := current.Nodes["deploy"]
-			if n.Status == "failed" {
-				t.Fatal(n.Error)
-			}
-			if n.Status == "succeeded" {
-				if n.JenkinsURL != controller.URL+"/ci/queue/item/42/" || triggers.Load() != 1 {
-					t.Fatalf("Jenkins result = %+v; calls = %d", n, triggers.Load())
-				}
-				return
-			}
-		}
-		time.Sleep(20 * time.Millisecond)
+	result = wait(run.ID, "failed").Nodes["deploy"]
+	if result.Attempt != 2 || !strings.Contains(result.Error, "接单状态待确认") || triggers.Load() != 2 {
+		t.Fatalf("retry repeated Jenkins request: %+v; calls = %d", result, triggers.Load())
 	}
-	t.Fatal("SOP did not reach Jenkins")
+	parent := domain.WorkflowDefinition{
+		ID: "jenkins-parent", ProjectID: projectID, Name: "Jenkins 子流程", SandboxProfileID: "local",
+		Nodes: []domain.WorkflowNode{{ID: "child", Name: "发布子流程", Type: "sop", SOPWorkflowID: wf.ID}},
+	}
+	if err := f.s.PutWorkflow(parent); err != nil {
+		t.Fatal(err)
+	}
+	run = start(parent.ID)
+	firstChild := wait(run.ID, "failed").Nodes["child"].ChildRunID
+	if firstChild == "" || triggers.Load() != 3 {
+		t.Fatalf("child %q, calls = %d", firstChild, triggers.Load())
+	}
+	if err := f.e.Retry(run.ID, "child", "", ""); err != nil {
+		t.Fatal(err)
+	}
+	secondChild := wait(run.ID, "failed").Nodes["child"].ChildRunID
+	if secondChild == "" || secondChild == firstChild || triggers.Load() != 3 {
+		t.Fatalf("child replay: before=%q after=%q calls=%d", firstChild, secondChild, triggers.Load())
+	}
+
+	gated := wf
+	gated.ID = "jenkins-with-approval"
+	gated.Nodes = append([]domain.WorkflowNode{{ID: "approve", Name: "审批", Type: "approval"}}, wf.Nodes...)
+	gated.Edges = []domain.WorkflowEdge{{ID: "release-after-approval", Source: "approve", Target: "deploy", When: "success"}}
+	if err := f.s.PutWorkflow(gated); err != nil {
+		t.Fatal(err)
+	}
+	run = start(gated.ID)
+	wait(run.ID, "waiting")
+	binding["parameters"] = map[string]string{"BRANCH": "test", "ENV": "changed"}
+	request(http.MethodPut, base+"/bindings", binding, http.StatusOK)
+	if err := f.e.Approve(run.ID, "approve", ""); err != nil {
+		t.Fatal(err)
+	}
+	result = wait(run.ID, "failed").Nodes["deploy"]
+	if !strings.Contains(result.Error, "目标未冻结或已变更") || triggers.Load() != 3 {
+		t.Fatalf("edited target was submitted: %+v; calls = %d", result, triggers.Load())
+	}
+	run = start(gated.ID)
+	wait(run.ID, "waiting")
+	request(http.MethodPut, "/api/platform/jenkins", map[string]any{
+		"id": "controller", "name": "Jenkins", "url": controller.URL + "/ci",
+		"username": "delivery", "projectIds": []string{},
+	}, http.StatusOK)
+	if list := request(http.MethodGet, base+"/bindings", nil, http.StatusOK); !strings.Contains(list, `"unavailable":true`) {
+		t.Fatalf("revoked binding was not marked unavailable: %s", list)
+	}
+	if err := f.e.Approve(run.ID, "approve", ""); err != nil {
+		t.Fatal(err)
+	}
+	result = wait(run.ID, "failed").Nodes["deploy"]
+	if !strings.Contains(result.Error, "未获该 Jenkins 连接授权") || triggers.Load() != 3 {
+		t.Fatalf("revoked target was submitted: %+v; calls = %d", result, triggers.Load())
+	}
 }

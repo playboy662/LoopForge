@@ -215,3 +215,37 @@ test('Git token verification rejects invalid tokens before save and accepts vali
   assert.equal(invalid.saved, false);
   assert.equal(valid.saved, true);
 });
+
+test('Codex model context windows save separately and can return to default', async (t) => {
+  const app = await loadApp();
+  t.after(app.close);
+  app.evaluate(`
+    state.currentUser={...state.data.users[0],id:1,isGuest:false,codexApiKeyConfigured:true,
+      codexModels:[{id:'first',contextWindow:128000},{id:'second'},{id:'third',contextWindow:64000}]};
+    state.data.users[0]=state.currentUser;
+    renderPersonalSettings();toggleCredentialRow('codexApiKey',true);
+  `);
+  app.router.put('/api/users/1/credentials', ({body}) => ({
+    id:1,codexApiKeyConfigured:true,codexModels:body.codexModels,
+  }));
+  const row=app.document.querySelector('[data-credential-row="codexApiKey"]');
+  const [first,second,third]=row.querySelectorAll('[data-catalog-field="contextWindow"]');
+  assert.equal(first.value,'128000');
+  assert.equal(second.value,'');
+  const thirdId=third.closest('[data-catalog-row]').querySelector('[data-catalog-field="id"]');
+  thirdId.value=' third ';
+  thirdId.dispatchEvent(new app.window.Event('input',{bubbles:true}));
+  assert.equal(third.value,'64000');
+  thirdId.value='renamed';
+  thirdId.dispatchEvent(new app.window.Event('input',{bubbles:true}));
+  assert.equal(third.value,'');
+  first.value='';
+  second.value='272000';
+  for(const input of [first,second])input.dispatchEvent(new app.window.Event('input',{bubbles:true}));
+  const save=row.querySelector('[data-credential-act="save"]');
+  assert.equal(save.disabled,false);
+  save.click();
+  await settle(6);
+  const request=app.router.calls.find(call=>call.method==='PUT'&&call.path==='/api/users/1/credentials');
+  assert.deepEqual(request.body.codexModels,[{id:'first'},{id:'second',contextWindow:272000},{id:'renamed'}]);
+});

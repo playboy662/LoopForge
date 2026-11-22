@@ -571,6 +571,9 @@ func normalizeCLIModels(models []domain.CLIModel) ([]domain.CLIModel, error) {
 		if name == id {
 			name = ""
 		}
+		if model.ContextWindow < 0 || model.ContextWindow > 2147483647 {
+			return nil, fmt.Errorf("模型 %s 的上下文窗口必须为有效 token 数", id)
+		}
 		efforts, defaultEffort, err := normalizeCLIModelEfforts(model.Efforts, model.DefaultEffort)
 		if err != nil {
 			return nil, fmt.Errorf("模型 %s：%w", id, err)
@@ -584,7 +587,7 @@ func normalizeCLIModels(models []domain.CLIModel) ([]domain.CLIModel, error) {
 			return nil, fmt.Errorf("模型 %s：%w", id, err)
 		}
 		out = append(out, domain.CLIModel{
-			ID: id, Name: name, Efforts: efforts, DefaultEffort: defaultEffort,
+			ID: id, Name: name, Efforts: efforts, DefaultEffort: defaultEffort, ContextWindow: model.ContextWindow,
 			ReasoningEfforts: reasoningEfforts, DiscoveredReasoningEfforts: discoveredEfforts,
 		})
 	}

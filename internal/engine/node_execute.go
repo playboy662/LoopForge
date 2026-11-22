@@ -328,9 +328,9 @@ func (e *Engine) executeNode(ctx context.Context, runID string, wf domain.Workfl
 	executionGeneration := currentLease.Generation
 	executionAttempt := 0
 	started := false
-	e.updateRun(runID, func(r *domain.Run) {
+	stored := e.updateRunAt(runID, false, func(r *domain.Run) {
 		nr := r.Nodes[node.ID]
-		if nr.Status != "pending" {
+		if nr == nil || nr.Status != "pending" || r.Generation != executionGeneration || r.CancelRequested || r.PauseRequested {
 			return
 		}
 		if nr.Error != "" && runtime.IsCwdMountFailure(errors.New(nr.Error)) {
@@ -348,11 +348,11 @@ func (e *Engine) executeNode(ctx context.Context, runID string, wf domain.Workfl
 		nr.StartedAt = time.Now().UTC()
 		nr.GateResult = nil
 		if node.Type == "jenkins" {
-			nr.JenkinsURL, nr.Output = "", ""
+			nr.JenkinsURL, nr.JenkinsQueued, nr.Output = "", false, ""
 		}
 		e.event(r, node.ID, "node.started", node.Name+" 开始执行")
 	})
-	if !started {
+	if !stored || !started {
 		return
 	}
 	ctx, cancelNode := context.WithCancel(ctx)
@@ -373,14 +373,14 @@ func (e *Engine) executeNode(ctx context.Context, runID string, wf domain.Workfl
 	}
 	if node.Type == "jenkins" {
 		if alignOnlyRun(currentLease) {
-			e.finishJenkinsNode(runID, node, executionAttempt, executionGeneration, "")
+			e.finishJenkinsNode(runID, node, executionAttempt, executionGeneration, repo.JenkinsReceipt{})
 			return
 		}
-		url, err := e.triggerJenkins(ctx, currentLease, node, executionAttempt)
+		receipt, err := e.triggerJenkins(ctx, currentLease, node, executionAttempt)
 		if err != nil {
 			failNode(err, false)
 		} else {
-			e.finishJenkinsNode(runID, node, executionAttempt, executionGeneration, url)
+			e.finishJenkinsNode(runID, node, executionAttempt, executionGeneration, receipt)
 		}
 		return
 	}
@@ -796,6 +796,10 @@ func (e *Engine) executeNode(ctx context.Context, runID string, wf domain.Workfl
 				options.GateResultPath = gateResultPath(nodeControlKey(current, node.ID), attempt)
 			}
 			ex := ex
+			if ex.Kind == "codex" {
+				model := runtime.CodexInvocationModel(ex.Model, ex.Args)
+				ex.Args = runtime.CodexContextWindowArgs(ex.Args, domain.CLIContextWindow(sb.credentialSnapshot().Codex.Models, model))
+			}
 			if cb := sb.credentialSnapshot().CodeBuddy; ex.Kind == "codebuddy" && cb.Sponsored {
 				ex = e.sponsoredExecutor(runID, ex, cb.SponsoredModels, sink)
 			}

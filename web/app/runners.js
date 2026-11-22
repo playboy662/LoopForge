@@ -396,8 +396,7 @@ function showRunnerModels(runner,runtime){
     catalog.onCatalogChange=syncSave;
     catalog.oninput=event=>{
       if(event.target.closest('[data-catalog-probe]'))return syncCredentialCatalogProbe(catalog);
-      event.target.closest('.credential-input')?.classList.remove('is-bad');
-      syncCredentialCatalogEfforts(event.target.closest('[data-catalog-row]'));
+      syncCredentialCatalogInput(event.target);
       syncSave();
     };
     catalog.onclick=event=>{

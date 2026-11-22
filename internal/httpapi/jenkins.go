@@ -1,11 +1,13 @@
 package httpapi
 
 import (
+	"encoding/json"
 	"net/http"
 	"regexp"
 	"slices"
 	"strings"
 
+	"agentflow/internal/domain"
 	"agentflow/internal/jenkins"
 	"agentflow/internal/repo"
 
@@ -17,7 +19,7 @@ type jenkinsHandlers struct{ *deps }
 var jenkinsKey = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_-]{0,79}$`)
 
 func (h *jenkinsHandlers) connections(c *gin.Context) {
-	if authRequired() && !h.isPlatformAdmin(c.Request) {
+	if !authRequired() || !h.isPlatformAdmin(c.Request) {
 		c.JSON(http.StatusForbidden, gin.H{"error": "只有平台管理员可以管理 Jenkins 连接"})
 		return
 	}
@@ -34,12 +36,22 @@ func (h *jenkinsHandlers) connections(c *gin.Context) {
 		item.Name, item.URL, item.Username = strings.TrimSpace(item.Name), strings.TrimRight(strings.TrimSpace(item.URL), "/"), strings.TrimSpace(item.Username)
 		if !jenkinsKey.MatchString(item.ID) || item.Name == "" || len([]rune(item.Name)) > 120 ||
 			item.Username == "" || len(item.Username) > 160 || strings.ContainsAny(item.Username, ":\r\n") ||
-			len(item.URL) > 500 || len(item.Token) > 300 || len(item.ProjectIDs) == 0 {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "请填写有效的连接标识、名称、Jenkins 地址、账号及至少一个授权项目"})
+			len(item.URL) > 500 || len(item.Token) > 300 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "请填写有效的连接标识、名称、Jenkins 地址和账号"})
 			return
 		}
 		if err := jenkins.ValidateURL(item.URL); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+		if item.ProjectIDs == nil {
+			item.ProjectIDs = []string{}
+		}
+		slices.Sort(item.ProjectIDs)
+		item.ProjectIDs = slices.Compact(item.ProjectIDs)
+		projectJSON, _ := json.Marshal(item.ProjectIDs)
+		if len(projectJSON) > 4000 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "授权项目列表过长"})
 			return
 		}
 		for _, projectID := range item.ProjectIDs {
@@ -68,11 +80,13 @@ func (h *jenkinsHandlers) projectAllowed(c *gin.Context, ownerOnly bool) bool {
 		c.JSON(http.StatusNotFound, gin.H{"error": "项目不存在或已归档"})
 		return false
 	}
-	if !authRequired() || h.isPlatformAdmin(c.Request) {
+	if authRequired() && h.isPlatformAdmin(c.Request) {
 		return true
 	}
 	user, signedIn := h.requestUser(c.Request, true)
-	if signedIn && (p.OwnerID == user.ID || !ownerOnly && h.projectMemberWrites(p.ID, user.ID)) {
+	if authRequired() && signedIn && (p.OwnerID == user.ID || !ownerOnly && slices.ContainsFunc(p.Members, func(member domain.ProjectMember) bool {
+		return member.UserID == user.ID && !strings.EqualFold(strings.TrimSpace(member.Role), "viewer")
+	})) {
 		return true
 	}
 	c.JSON(http.StatusForbidden, gin.H{"error": "没有管理或使用该项目 Jenkins 配置的权限"})
@@ -94,34 +108,45 @@ func (h *jenkinsHandlers) projectConnections(c *gin.Context) {
 	}
 	out := []option{}
 	for _, item := range items {
-		if slices.Contains(item.ProjectIDs, c.Param("id")) {
+		if item.AllowsProject(c.Param("id")) && jenkins.ValidateURL(item.URL) == nil {
 			out = append(out, option{item.ID, item.Name})
 		}
 	}
 	c.JSON(http.StatusOK, out)
 }
 
-func (h *jenkinsHandlers) authorizedJobs(c *gin.Context, connectionID string) ([]string, bool) {
+func (h *jenkinsHandlers) authorizedJenkins(c *gin.Context, connectionID string) (jenkins.Client, bool) {
 	item, err := h.repo.JenkinsController(connectionID)
-	if err != nil || !slices.Contains(item.ProjectIDs, c.Param("id")) {
+	if err != nil || !item.AllowsProject(c.Param("id")) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Jenkins 连接不存在或未授权给当前项目"})
-		return nil, false
+		return jenkins.Client{}, false
 	}
-	jobs, err := (jenkins.Client{BaseURL: item.URL, Username: item.Username, Token: item.Token}).Jobs(c.Request.Context())
-	if err != nil {
-		c.JSON(http.StatusBadGateway, gin.H{"error": err.Error()})
-		return nil, false
-	}
-	return jobs, true
+	return jenkins.Client{BaseURL: item.URL, Username: item.Username, Token: item.Token}, true
 }
 
 func (h *jenkinsHandlers) jobs(c *gin.Context) {
 	if !h.projectAllowed(c, true) {
 		return
 	}
-	if items, ok := h.authorizedJobs(c, c.Query("connectionId")); ok {
-		c.JSON(http.StatusOK, items)
+	client, ok := h.authorizedJenkins(c, c.Query("connectionId"))
+	if !ok {
+		return
 	}
+	if job := c.Query("job"); job != "" {
+		config, err := client.JobConfiguration(c.Request.Context(), job)
+		if err != nil {
+			c.JSON(http.StatusBadGateway, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(http.StatusOK, config)
+		return
+	}
+	jobs, err := client.Jobs(c.Request.Context())
+	if err != nil {
+		c.JSON(http.StatusBadGateway, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, jobs)
 }
 
 func (h *jenkinsHandlers) bindings(c *gin.Context) {
@@ -144,13 +169,34 @@ func (h *jenkinsHandlers) bindings(c *gin.Context) {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "请填写有效的绑定标识、服务、环境、Job 和可选参数"})
 			return
 		}
-		jobs, ok := h.authorizedJobs(c, item.ConnectionID)
+		client, ok := h.authorizedJenkins(c, item.ConnectionID)
 		if !ok {
 			return
 		}
-		if !slices.Contains(jobs, item.Job) {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "Job 不在该连接可见的可构建列表中"})
+		config, err := client.JobConfiguration(c.Request.Context(), item.Job)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
+		}
+		item.Parameters = item.JobParameters()
+		item.Parameter, item.Value = "", ""
+		item.Parameterized = len(config.Parameters) > 0
+		parameters, _ := json.Marshal(item.Parameters)
+		if len(parameters) > 4000 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Job 参数配置过长"})
+			return
+		}
+		for name, value := range item.Parameters {
+			if !slices.Contains(config.Parameters, name) || len(value) > 1000 {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "Job 参数不存在或值过长"})
+				return
+			}
+		}
+		for _, name := range config.Required {
+			if strings.TrimSpace(item.Parameters[name]) == "" {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "请填写 Jenkins 必填参数 " + name})
+				return
+			}
 		}
 		if err := h.repo.SaveJenkinsBinding(item); err != nil {
 			respond(c, err)
@@ -166,6 +212,18 @@ func (h *jenkinsHandlers) bindings(c *gin.Context) {
 	if err != nil {
 		respond(c, err)
 		return
+	}
+	connections, err := h.repo.JenkinsConnections()
+	if err != nil {
+		respond(c, err)
+		return
+	}
+	allowed := make(map[string]bool, len(connections))
+	for _, item := range connections {
+		allowed[item.ID] = item.AllowsProject(projectID) && jenkins.ValidateURL(item.URL) == nil
+	}
+	for i := range items {
+		items[i].Unavailable = !allowed[items[i].ConnectionID]
 	}
 	c.JSON(http.StatusOK, items)
 }

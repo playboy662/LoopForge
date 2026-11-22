@@ -153,12 +153,12 @@ func TestApplyAgentCLICredential(t *testing.T) {
 		t.Fatal("OpenCode auto-updater is enabled")
 	}
 
-	_, env, err = ApplyAgentCLICredential(AgentCLIKimi, ProviderCredential{APIKey: "secret-key", BaseURL: "https://api.example/v1", Protocol: "responses"}, AgentCLIOptions{Model: "m"}, HostAgentCLIHome(home), "/w/home", nil)
+	_, env, err = ApplyAgentCLICredential(AgentCLIKimi, ProviderCredential{APIKey: "secret-key", BaseURL: "https://api.example/v1", Protocol: "responses", Models: []domain.CLIModel{{ID: "m", ContextWindow: 272000}}}, AgentCLIOptions{Model: "m"}, HostAgentCLIHome(home), "/w/home", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	toml, _ := os.ReadFile(filepath.Join(home, ".kimi-code", "config.toml"))
-	if env["KIMI_CODE_HOME"] != "/w/home/.kimi-code" || !strings.Contains(string(toml), `type = "openai_responses"`) || strings.Contains(string(toml), "secret-key") {
+	if env["KIMI_CODE_HOME"] != "/w/home/.kimi-code" || !strings.Contains(string(toml), `type = "openai_responses"`) || !strings.Contains(string(toml), "max_context_size = 272000") || strings.Contains(string(toml), "secret-key") {
 		t.Fatalf("kimi config: %v\n%s", env, toml)
 	}
 	if env["KIMI_CODE_NO_AUTO_UPDATE"] != "1" {

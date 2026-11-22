@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { loadApp } from '../lib/load-app.mjs';
+import { loadApp, settle } from '../lib/load-app.mjs';
 
 test('flow editor manages preview contracts, nodes, connections, diagnostics, and properties', async (t) => {
   const app = await loadApp();
@@ -158,4 +158,26 @@ test('switching workflows explicitly offers to discard edits or continue editing
   assert.equal(app.document.querySelector('#confirmCancelBtn').textContent,'继续编辑');
   app.document.querySelector('#confirmCancelBtn').click();
   assert.equal(await pending,false);
+});
+
+test('Jenkins node saves a project Job binding without connection credentials', async (t) => {
+  const app = await loadApp();
+  t.after(app.close);
+  app.router.get('/api/projects/project-1/jenkins/bindings', [
+    { id: 'api-test', environment: '测试', service: '后端', job: 'team/deploy' },
+  ]);
+  app.router.put('/api/workflows', (call) => ({ ...call.body, revision: 1 }));
+  app.evaluate(`switchView('flow');state.workflow={id:'jenkins-flow',projectId:'project-1',
+    name:'发布',status:'draft',sandboxProfileId:'sandbox-1',nodes:[],edges:[]};
+    addNode('jenkins',{at:{x:20,y:40}})`);
+  await settle(6);
+  const select = app.document.querySelector('[data-p="jenkinsBindingId"]');
+  assert.match(select.textContent, /测试 · 后端 · team\/deploy/);
+  select.value = 'api-test';
+  select.dispatchEvent(new app.window.Event('input', { bubbles: true }));
+  await app.evaluate('saveWorkflow()');
+  const put = app.router.calls.find(call => call.method === 'PUT' && call.path === '/api/workflows');
+  assert.equal(put.body.nodes[0].type, 'jenkins');
+  assert.equal(put.body.nodes[0].jenkinsBindingId, 'api-test');
+  assert.equal(put.body.nodes[0].token, undefined);
 });

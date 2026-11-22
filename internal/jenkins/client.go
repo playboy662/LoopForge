@@ -9,10 +9,14 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"os"
 	"regexp"
 	"strings"
 	"time"
 )
+
+const HTTPAllowlistEnv = "AGENTFLOW_JENKINS_HTTP_ALLOWED_HOSTS"
+const JobListDepth = 8
 
 type Client struct {
 	BaseURL  string
@@ -28,8 +32,20 @@ var httpClient = &http.Client{
 func ValidateURL(raw string) error {
 	u, err := url.Parse(raw)
 	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Hostname() == "" ||
-		u.User != nil || u.RawQuery != "" || u.Fragment != "" || u.Opaque != "" {
+		u.User != nil || u.ForceQuery || strings.Contains(raw, "#") || u.RawQuery != "" || u.Opaque != "" {
 		return errors.New("请输入不含凭据、查询参数或片段的 Jenkins 地址")
+	}
+	if u.Scheme == "http" {
+		allowed := false
+		for _, authority := range strings.Split(os.Getenv(HTTPAllowlistEnv), ",") {
+			if u.Port() != "" && strings.EqualFold(u.Host, strings.TrimSpace(authority)) {
+				allowed = true
+				break
+			}
+		}
+		if !allowed {
+			return errors.New("Jenkins 地址须使用 HTTPS，明文 HTTP 需要管理员显式放行主机和端口")
+		}
 	}
 	for _, part := range strings.Split(u.Path, "/") {
 		if part == "." || part == ".." || strings.Contains(part, "\\") {
@@ -66,7 +82,10 @@ type listedJob struct {
 }
 
 func (c Client) Jobs(ctx context.Context) ([]string, error) {
-	tree := "jobs[name,_class,buildable,jobs[name,_class,buildable,jobs[name,_class,buildable,jobs[name,_class,buildable]]]]"
+	tree := "jobs[name,_class,buildable]"
+	for range JobListDepth - 1 {
+		tree = "jobs[name,_class,buildable," + tree + "]"
+	}
 	res, err := c.request(ctx, http.MethodGet, "/api/json?"+url.Values{"tree": {tree}}.Encode(), nil)
 	if err != nil {
 		return nil, err
@@ -97,6 +116,51 @@ func (c Client) Jobs(ctx context.Context) ([]string, error) {
 	return jobs, nil
 }
 
+type JobConfiguration struct {
+	Parameters []string `json:"parameters"`
+	Required   []string `json:"required"`
+}
+
+func (c Client) JobConfiguration(ctx context.Context, name string) (JobConfiguration, error) {
+	var out JobConfiguration
+	path, err := jobPath(name)
+	if err != nil {
+		return out, err
+	}
+	query := url.Values{"tree": {"buildable,property[parameterDefinitions[name,required,defaultParameterValue[name]]]"}}
+	res, err := c.request(ctx, http.MethodGet, path+"/api/json?"+query.Encode(), nil)
+	if err != nil {
+		return out, err
+	}
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusOK {
+		return out, fmt.Errorf("Jenkins 读取 Job 参数失败（HTTP %d）", res.StatusCode)
+	}
+	var job struct {
+		Buildable bool
+		Property  []struct {
+			ParameterDefinitions []struct {
+				Name                  string
+				Required              bool
+				DefaultParameterValue *struct{ Name string }
+			}
+		}
+	}
+	if err := json.NewDecoder(io.LimitReader(res.Body, 2<<20)).Decode(&job); err != nil || !job.Buildable {
+		return out, errors.New("Jenkins Job 不可构建或参数定义无效")
+	}
+	out.Parameters, out.Required = []string{}, []string{}
+	for _, property := range job.Property {
+		for _, definition := range property.ParameterDefinitions {
+			out.Parameters = append(out.Parameters, definition.Name)
+			if definition.Required && definition.DefaultParameterValue == nil {
+				out.Required = append(out.Required, definition.Name)
+			}
+		}
+	}
+	return out, nil
+}
+
 func validSegment(s string) bool {
 	return s != "" && s != "." && s != ".." && !strings.ContainsAny(s, "/\\\r\n\x00")
 }
@@ -113,33 +177,47 @@ func jobPath(fullName string) (string, error) {
 	return path.String(), nil
 }
 
-var queuePath = regexp.MustCompile(`/queue/item/[0-9]+/?$`)
+var queuePath = regexp.MustCompile(`^queue/item/[0-9]+/?$`)
 
-func (c Client) Trigger(ctx context.Context, fullName, parameter, value string) (string, error) {
+type TriggerResult struct {
+	URL      string
+	Queued   bool
+	Rejected bool
+}
+
+func (c Client) Trigger(ctx context.Context, fullName string, parameters map[string]string, parameterized bool) (TriggerResult, error) {
 	path, err := jobPath(fullName)
 	if err != nil {
-		return "", err
+		return TriggerResult{Rejected: true}, err
 	}
 	var form url.Values
 	action := "/build"
-	if parameter != "" {
-		form = url.Values{parameter: {value}}
+	if parameterized || len(parameters) > 0 {
+		form = url.Values{}
+		for name, value := range parameters {
+			form.Set(name, value)
+		}
 		action = "/buildWithParameters"
 	}
 	res, err := c.request(ctx, http.MethodPost, path+action, form)
 	if err != nil {
-		return "", err
+		return TriggerResult{}, err
 	}
 	defer res.Body.Close()
 	if res.StatusCode != http.StatusCreated {
-		return "", fmt.Errorf("Jenkins 未确认接单（HTTP %d），请核对权限、Job 和参数", res.StatusCode)
+		switch res.StatusCode {
+		case http.StatusBadRequest, http.StatusUnauthorized, http.StatusForbidden, http.StatusNotFound, http.StatusMethodNotAllowed, http.StatusUnprocessableEntity:
+			return TriggerResult{Rejected: true}, fmt.Errorf("Jenkins 拒绝请求（HTTP %d），请核对权限、Job 和参数", res.StatusCode)
+		default:
+			return TriggerResult{}, fmt.Errorf("Jenkins 未确认接单（HTTP %d）", res.StatusCode)
+		}
 	}
 	base, _ := url.Parse(strings.TrimRight(c.BaseURL, "/") + "/")
 	if location, err := base.Parse(res.Header.Get("Location")); err == nil &&
 		location.Scheme == base.Scheme && location.Host == base.Host && location.User == nil &&
-		strings.HasPrefix(location.Path, base.Path) && queuePath.MatchString(location.Path) {
+		strings.HasPrefix(location.Path, base.Path) && queuePath.MatchString(strings.TrimPrefix(location.Path, base.Path)) {
 		location.RawQuery, location.Fragment = "", ""
-		return location.String(), nil
+		return TriggerResult{URL: location.String(), Queued: true}, nil
 	}
-	return strings.TrimRight(c.BaseURL, "/") + path + "/", nil
+	return TriggerResult{URL: strings.TrimRight(c.BaseURL, "/") + path + "/"}, nil
 }

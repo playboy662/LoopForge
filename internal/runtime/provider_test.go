@@ -1,6 +1,7 @@
 package runtime
 
 import (
+	"slices"
 	"strings"
 	"testing"
 
@@ -276,5 +277,65 @@ func TestEffortFlagOmittedWithoutEffortAndNotDuplicated(t *testing.T) {
 	}
 	if !hasContiguousArgs(command.Argv, []string{"--effort", "medium"}) {
 		t.Fatalf("user-supplied effort value was changed: %v", command.Argv)
+	}
+}
+
+func TestCodexContextWindowOverrideBeforeResume(t *testing.T) {
+	for _, tt := range []struct {
+		name     string
+		args     []string
+		window   int
+		override string
+	}{
+		{"uses native default", nil, 0, ""},
+		{"configured window", nil, 272000, "model_context_window=272000"},
+		{"executor override wins", []string{"--config=model_context_window=128000"}, 272000, "--config=model_context_window=128000"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			command, err := PrepareProviderCommand(domain.ExecutorDefinition{
+				Kind: "codex", Binary: "codex", Args: CodexContextWindowArgs(append([]string{"exec"}, tt.args...), tt.window),
+			}, "continue", "local", InvocationOptions{ResumeSessionID: "thread-1"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			argv := command.Argv
+			resume := len(argv) - 3
+			if argv[resume] != "resume" {
+				t.Fatalf("unexpected command: %v", argv)
+			}
+			var overrides []string
+			for _, arg := range argv[:resume] {
+				if strings.Contains(arg, "model_context_window=") {
+					overrides = append(overrides, arg)
+				}
+			}
+			if tt.override == "" && len(overrides) != 0 ||
+				tt.override != "" && (len(overrides) != 1 || overrides[0] != tt.override) {
+				t.Fatalf("unexpected context overrides: %v", argv)
+			}
+		})
+	}
+}
+
+func TestCodexExplicitModelSelectsItsContextWindow(t *testing.T) {
+	models := []domain.CLIModel{
+		{ID: "configured", ContextWindow: 128000},
+		{ID: "explicit", ContextWindow: 272000},
+	}
+	for _, flag := range [][]string{{"--model", "explicit"}, {"--model=explicit"}, {"-m", "explicit"}, {"-m=explicit"}, {"-mexplicit"}} {
+		t.Run(strings.Join(flag, " "), func(t *testing.T) {
+			executor := domain.ExecutorDefinition{Kind: "codex", Binary: "codex", Model: "configured", Args: append([]string{"exec"}, flag...)}
+			model := CodexInvocationModel(executor.Model, executor.Args)
+			executor.Args = CodexContextWindowArgs(executor.Args, domain.CLIContextWindow(models, model))
+			command, err := PrepareProviderCommand(executor, "continue", "local", InvocationOptions{ResumeSessionID: "thread-1"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			want := append([]string{"codex", "exec"}, flag...)
+			want = append(want, "-c", "model_context_window=272000", "resume", "thread-1", "continue")
+			if !slices.Equal(command.Argv, want) {
+				t.Fatalf("command = %v, want %v", command.Argv, want)
+			}
+		})
 	}
 }

@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync"
 
+	"agentflow/internal/domain"
 	"agentflow/internal/runtime"
 )
 
@@ -45,6 +46,7 @@ func prepareAssistantCodexInvocation(o assistantEngineInvocationOpts) (assistant
 		argv = append(argv, "-c", "model_reasoning_effort="+strconv.Quote(effort))
 	}
 	// BindCodex inserts its provider overrides before the last argument.
+	argv = runtime.CodexContextWindowArgs(argv, domain.CLIContextWindow(o.User.Models, o.Model))
 	argv = append(argv, "--stdio")
 	stdin, input, err := os.Pipe()
 	if err != nil {

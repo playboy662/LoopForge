@@ -101,6 +101,16 @@ func (e *Engine) startWorkflowDefinition(wf domain.WorkflowDefinition, input str
 	if err := validate(wf); err != nil {
 		return domain.Run{}, err
 	}
+	wf.JenkinsTargets = nil
+	if executionContext.ParentRunID == "" {
+		executionContext.JenkinsPath = ""
+		if !alignOnlyRun(domain.Run{WorkflowSnapshot: wf, Repositories: repositories}) {
+			wf.JenkinsTargets, err = e.freezeJenkinsTargets(wf, executionContext)
+			if err != nil {
+				return domain.Run{}, err
+			}
+		}
+	}
 	profile, ok := e.repo.Sandbox(wf.SandboxProfileID)
 	if !ok {
 		return domain.Run{}, fmt.Errorf("sandbox profile %q not found", wf.SandboxProfileID)

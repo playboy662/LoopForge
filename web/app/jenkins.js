@@ -3,22 +3,21 @@ function jenkinsOption(value,label){
 }
 
 function platformJenkinsHTML(){
-  const projects=(state.data.projects||[]).filter(p=>!p.archivedAt);
-  return paSection('Jenkins 连接','为项目授权 Jenkins 服务账号。项目负责人随后可从该账号可见的 Job 中选择。',`
+  return paSection('Jenkins 连接','保存后，所有项目的负责人都可在「项目配置 → Jenkins 流水线」选择此连接并绑定 Job。',`
     <form data-jenkins-connection class="pa-rows">
       ${paRow('已有连接','选择已有连接可以修改或轮换令牌。','<select class="select" name="existing"><option value="">新增连接</option></select>')}
       ${paRow('连接名称','', '<input class="pa-input" name="displayName" required maxlength="120">')}
-      ${paRow('Jenkins 地址','包含 Jenkins 的访问路径。','<input class="pa-input" name="url" type="url" required placeholder="https://ci.example.com/jenkins">')}
+      ${paRow('Jenkins 地址','默认使用 HTTPS。','<input class="pa-input" name="url" type="url" required placeholder="https://ci.example.com/jenkins">')}
       ${paRow('服务账号','', '<input class="pa-input" name="username" required autocomplete="off">')}
       ${paRow('API Token','修改地址或账号时需要重新填写。','<input class="pa-input" name="token" type="password" autocomplete="new-password">')}
-      ${paRow('授权项目','可选多个项目。','<select class="select" name="projectIds" multiple aria-label="授权项目">'+projects.map(p=>jenkinsOption(p.id,p.name)).join('')+'</select>')}
       <p data-status role="status"></p><div><button class="button primary" type="submit">保存连接</button></div>
     </form>`);
 }
 
 async function loadPlatformJenkins(host){
   const form=host.querySelector('[data-jenkins-connection]');
-  if(!form)return;
+  if(!form||form.dataset.loaded)return;
+  form.dataset.loaded='true';
   const fields=form.elements,status=form.querySelector('[data-status]'),save=form.querySelector('[type=submit]');
   const endpoint='/api/platform/jenkins';
   let items=[];
@@ -32,7 +31,6 @@ async function loadPlatformJenkins(host){
     fields.url.value=item?.url||'';
     fields.username.value=item?.username||'';
     fields.token.value='';
-    for(const option of fields.projectIds.options)option.selected=item?.projectIds?.includes(option.value)||false;
     status.textContent='';
   };
   form.onsubmit=async event=>{
@@ -40,7 +38,7 @@ async function loadPlatformJenkins(host){
     save.disabled=true;
     const id=fields.existing.value||uid('jenkins');
     const value={id,name:fields.displayName.value,url:fields.url.value,username:fields.username.value,
-      token:fields.token.value,projectIds:Array.from(fields.projectIds.selectedOptions,o=>o.value)};
+      token:fields.token.value,allProjects:true};
     try{
       items=await api(endpoint,{method:'PUT',body:JSON.stringify(value),silent:true});
       fields.token.value='';
@@ -51,7 +49,7 @@ async function loadPlatformJenkins(host){
   };
   save.disabled=true;
   try{items=await api(endpoint,{silent:true});showList('');save.disabled=false}
-  catch(err){status.textContent=err.message}
+  catch(err){delete form.dataset.loaded;status.textContent=err.message}
 }
 
 function projectJenkinsHTML(){
@@ -62,7 +60,7 @@ function projectJenkinsHTML(){
       ${paRow('Job','', '<select class="select" data-job aria-label="Jenkins Job"></select>')}
       ${paRow('服务','', '<input class="pa-input" data-service aria-label="服务" placeholder="例如 后端">')}
       ${paRow('部署环境','', '<input class="pa-input" data-environment aria-label="部署环境" placeholder="例如 测试">')}
-      ${paRow('Job 参数（可选）','填写 Jenkins Job 使用的实际参数名和固定值。','<div class="pw-row2"><input class="pa-input" data-parameter aria-label="Job 参数名" placeholder="BRANCH"><input class="pa-input" data-value aria-label="Job 参数值" placeholder="test"></div>')}
+      <div data-job-parameters></div>
       <p data-status role="status"></p>
       <div><button type="button" class="button primary" data-save>添加绑定</button><button type="button" class="button ghost" data-reset hidden>取消编辑</button></div>
     </div>`);
@@ -76,17 +74,35 @@ async function loadProjectJenkins(projectID){
   const connection=field('connection'),job=field('job'),status=field('status'),save=field('save');
   const base=`/api/projects/${encodeURIComponent(projectID)}/jenkins`;
   let bindings=[],selected='',revision=0;
+  async function loadParameters(values={}){
+    const request=++revision,box=field('job-parameters');
+    box.innerHTML='';
+    save.disabled=true;
+    if(!job.value)return;
+    try{
+      const metadata=await api(base+'/jobs?'+new URLSearchParams({connectionId:connection.value,job:job.value}),{silent:true});
+      if(request!==revision)return;
+      const required=new Set(metadata.required);
+      box.innerHTML=metadata.parameters.map((name,index)=>{
+        const id='jenkins-param-'+index;
+        return `<label class="pa-row" for="${id}"><span>${escapeHTML(name)}${required.has(name)?'（必填）':''}</span><input id="${id}" class="pa-input" data-job-parameter="${escapeHTML(name)}" value="${escapeHTML(values[name]??'')}" ${required.has(name)?'required':''}></label>`;
+      }).join('');
+      save.disabled=false;
+      status.textContent='';
+    }catch(err){if(request===revision)status.textContent=err.message}
+  }
   function render(){
     field('bindings').innerHTML=bindings.length?bindings.map(item=>`<div class="pa-row">
-      <div><b>${escapeHTML(item.environment)} · ${escapeHTML(item.service)}</b><div>${escapeHTML(item.job)}</div></div>
+      <div><b>${escapeHTML(item.environment)} · ${escapeHTML(item.service)}</b><div>${escapeHTML(item.job)}${item.unavailable?' · 连接不可用':''}</div></div>
       <button type="button" class="button ghost small" data-edit-binding="${escapeHTML(item.id)}">编辑</button>
     </div>`).join(''):'<p>还没有绑定 Jenkins Job。</p>';
   }
-  async function loadJobs(wanted=''){
+  async function loadJobs(wanted='',values={}){
     const request=++revision,id=connection.value;
     job.innerHTML=jenkinsOption('','选择 Job');
     job.disabled=true;
     save.disabled=true;
+    field('job-parameters').innerHTML='';
     if(!id)return;
     status.textContent='正在获取 Job…';
     try{
@@ -95,31 +111,37 @@ async function loadProjectJenkins(projectID){
       job.innerHTML=jenkinsOption('','选择 Job')+jobs.map(name=>jenkinsOption(name,name)).join('');
       job.value=jobs.includes(wanted)?wanted:'';
       job.disabled=false;
-      save.disabled=false;
-      status.textContent=jobs.length?'':'当前账号没有可构建的 Job';
+      status.textContent=jobs.length?'':'前 8 级目录内没有可构建的 Job';
+      if(job.value)await loadParameters(values);
     }catch(err){if(request===revision)status.textContent=err.message}
   }
   connection.onchange=()=>loadJobs();
+  job.onchange=()=>loadParameters();
   field('bindings').onclick=event=>{
     const item=bindings.find(row=>row.id===event.target.closest('[data-edit-binding]')?.dataset.editBinding);
     if(!item)return;
     selected=item.id;
-    for(const key of ['service','environment','parameter','value'])field(key).value=item[key]||'';
+    for(const key of ['service','environment'])field(key).value=item[key]||'';
     save.textContent='保存绑定';
     field('reset').hidden=false;
     connection.value=item.connectionId;
-    loadJobs(item.job);
+    loadJobs(item.job,item.parameters||(item.parameter?{[item.parameter]:item.value}:{}));
   };
   field('reset').onclick=()=>{
     selected='';
     save.textContent='添加绑定';
     field('reset').hidden=true;
-    for(const key of ['service','environment','parameter','value'])field(key).value='';
+    for(const key of ['service','environment'])field(key).value='';
     job.value='';
+    loadParameters();
   };
   save.onclick=async()=>{
     const item={id:selected||uid('job'),connectionId:connection.value,job:job.value};
-    for(const key of ['service','environment','parameter','value'])item[key]=field(key).value;
+    for(const key of ['service','environment'])item[key]=field(key).value;
+    const inputs=[...host.querySelectorAll('[data-job-parameter]')];
+    const missing=inputs.find(input=>input.required&&!input.value.trim());
+    if(missing){status.textContent='请填写 '+missing.dataset.jobParameter;missing.focus();return}
+    item.parameters=Object.fromEntries(inputs.filter(input=>input.value!=='').map(input=>[input.dataset.jobParameter,input.value]));
     if(!item.job||!item.service.trim()||!item.environment.trim()){status.textContent='请选择 Job，并填写服务和环境';return}
     save.disabled=true;
     try{
@@ -128,7 +150,7 @@ async function loadProjectJenkins(projectID){
       field('reset').click();
       status.textContent='Job 绑定已保存';
     }catch(err){status.textContent=err.message}
-    finally{save.disabled=false}
+    finally{save.disabled=!job.value}
   };
   save.disabled=true;
   try{
@@ -136,7 +158,7 @@ async function loadProjectJenkins(projectID){
     bindings=items;
     render();
     connection.innerHTML=jenkinsOption('','选择连接')+connections.map(item=>jenkinsOption(item.id,item.name)).join('');
-    status.textContent=connections.length?'':'请让平台管理员为当前项目授权 Jenkins 连接';
+    status.textContent=connections.length?'':'请让平台管理员在「Jenkins 连接」中新增或重新保存连接';
   }catch(err){status.textContent=err.message}
 }
 
@@ -146,9 +168,10 @@ async function loadJenkinsNodeBindings(select,node){
   try{
     const rows=await api(`/api/projects/${encodeURIComponent(projectID)}/jenkins/bindings`,{silent:true});
     if(!select.isConnected)return;
-    select.innerHTML=jenkinsOption('','选择项目绑定')+rows.map(row=>jenkinsOption(row.id,`${row.environment} · ${row.service} · ${row.job}`)).join('');
-    if(node.jenkinsBindingId&&!rows.some(row=>row.id===node.jenkinsBindingId)){
-      select.insertAdjacentHTML('beforeend',jenkinsOption(node.jenkinsBindingId,'已保存的绑定（当前不可见）'));
+    const available=rows.filter(row=>!row.unavailable);
+    select.innerHTML=jenkinsOption('','选择项目绑定')+available.map(row=>jenkinsOption(row.id,`${row.environment} · ${row.service} · ${row.job}`)).join('');
+    if(node.jenkinsBindingId&&!available.some(row=>row.id===node.jenkinsBindingId)){
+      select.insertAdjacentHTML('beforeend',`<option value="${escapeHTML(node.jenkinsBindingId)}" disabled>已保存的绑定（当前不可用）</option>`);
     }
     select.value=node.jenkinsBindingId||'';
   }catch(err){

@@ -66,8 +66,6 @@ const CREDENTIAL_KINDS=[
     use:'SSH 密钥用于克隆和推送；创建 PR/MR 需要访问令牌',dialog:()=>openGitSSHKeys(),action:'管理密钥'},
   {key:'gitHttpCredentials',group:'platform',name:'Git HTTPS',short:'Git 访问令牌',icon:'lock',
     use:'按主机管理 HTTPS 访问令牌，工作区的 git、gh、glab 自动认证',dialog:()=>openGitHTTPCredentials(),action:'管理令牌'},
-  {key:'gitPlainHttpCredentials',group:'platform',name:'Git HTTP',short:'Git 访问令牌',icon:'lock',
-    use:'按管理员放行的主机和端口配置令牌，用于 Git 检出和推送',dialog:()=>openGitHTTPCredentials({plain:true}),action:'管理令牌'},
   {key:'codeBuddyApiKey',group:'model',name:'CodeBuddy',short:'CodeBuddy API Key',logo:'codebuddy',
     use:'AI 对话与 SOP 的 CodeBuddy 执行器',
     description:'AI 对话（含 Claude、GPT 等模型）和 SOP 的 CodeBuddy 执行器都使用它；网络环境按账号所在环境配置。',
@@ -157,6 +155,7 @@ function credentialCatalogModels(value){
     const id=String(model?.id||'').trim(),name=String(model?.name||'').trim();
     const metadata={
       ...(model?.efforts?{efforts:model.efforts,defaultEffort:model.defaultEffort}:{}),
+      ...(model?.contextWindow?{contextWindow:model.contextWindow}:{}),
       ...(Array.isArray(model?.reasoningEfforts)?{reasoningEfforts:model.reasoningEfforts}:{}),
       ...(Array.isArray(model?.discoveredReasoningEfforts)?{discoveredReasoningEfforts:model.discoveredReasoningEfforts}:{}),
     };
@@ -166,7 +165,7 @@ function credentialCatalogModels(value){
 function credentialCatalogStored(models){return credentialCatalogModels(models).map(({name,...model})=>name?{...model,name}:model)}
 function credentialCatalogKey(models){
   return JSON.stringify(credentialCatalogModels(models).map(model=>[
-    model.id,model.name,
+    model.id,model.name,model.contextWindow||0,
     model.reasoningEfforts?.slice().sort()??null,
     model.discoveredReasoningEfforts?.slice().sort()??null,
     Object.entries(model.efforts||{}).sort(([a],[b])=>a.localeCompare(b)),model.defaultEffort||'',
@@ -175,13 +174,14 @@ function credentialCatalogKey(models){
 function credentialCatalogError(models){
   const seen=new Set();
   if(models.length>CREDENTIAL_CATALOG_MAX)return {index:CREDENTIAL_CATALOG_MAX,error:`模型目录最多 ${CREDENTIAL_CATALOG_MAX} 个`};
-  for(const [index,{id='',name=''}] of models.entries()){
+  for(const [index,{id='',name='',contextWindow=0}] of models.entries()){
     const model={id,name};
     if(!model.id)return {index,field:'id',error:'模型 ID 不能为空'};
     if(model.id.length>128)return {index,field:'id',error:'模型 ID 不能超过 128 个字符'};
     if(/[\s"'`\\\u0000-\u001f\u007f]/.test(model.id))return {index,field:'id',error:`模型 ID「${model.id}」不能包含空格、引号或反斜杠`};
     if(seen.has(model.id))return {index,field:'id',error:`模型 ID「${model.id}」重复`};
     if([...model.name].length>64)return {index,field:'name',error:'显示名称不能超过 64 个字符'};
+    if(contextWindow&&(!Number.isInteger(contextWindow)||contextWindow<1||contextWindow>2147483647))return {index,field:'contextWindow',error:'上下文窗口请输入正整数，或留空使用默认'};
     seen.add(model.id);
   }
   return null;
@@ -224,8 +224,9 @@ function refreshCredentialCatalogEfforts(catalog){
   });
 }
 function credentialCatalogRowHTML(model={},engine=''){
+  const contextWindow=['codex','kimi'].includes(engine)?`<label class="credential-catalog-context"><span>上下文窗口</span><span class="credential-input is-plain"><input data-catalog-field="contextWindow" data-model-id="${escapeHTML(model.id||'')}" inputmode="numeric" value="${escapeHTML(model.contextWindow||'')}" placeholder="默认" aria-label="上下文窗口（tokens）" autocomplete="off"></span><small>tokens</small></label>`:'';
   const metadata=` data-catalog-metadata="${escapeHTML(JSON.stringify(credentialCatalogModels([model])[0]||{}))}"`;
-  return `<li class="credential-catalog-row" data-catalog-row${metadata}><button type="button" class="credential-catalog-grip" data-catalog-grip aria-label="拖动排序，也可以按 ↑ ↓ 移动">${credentialGlyph('grip',14)}</button><span class="credential-input is-plain"><input class="credential-mono" data-catalog-field="id" value="${escapeHTML(model.id||'')}" placeholder="模型 ID，如 gpt-5.5" aria-label="模型 ID" autocomplete="off" spellcheck="false"></span><span class="credential-input is-plain"><input data-catalog-field="name" value="${escapeHTML(model.name||'')}" placeholder="显示名称（可选）" aria-label="显示名称" autocomplete="off"></span><button type="button" class="credential-btn ghost icon danger credential-ink" data-catalog-act="remove" aria-label="移除模型">${credentialGlyph('trash',14)}</button>${credentialCatalogEffortHTML(model,engine)}</li>`;
+  return `<li class="credential-catalog-row" data-catalog-row${metadata}><button type="button" class="credential-catalog-grip" data-catalog-grip aria-label="拖动排序，也可以按 ↑ ↓ 移动">${credentialGlyph('grip',14)}</button><span class="credential-input is-plain"><input class="credential-mono" data-catalog-field="id" value="${escapeHTML(model.id||'')}" placeholder="模型 ID，如 gpt-5.5" aria-label="模型 ID" autocomplete="off" spellcheck="false"></span><span class="credential-input is-plain"><input data-catalog-field="name" value="${escapeHTML(model.name||'')}" placeholder="显示名称（可选）" aria-label="显示名称" autocomplete="off"></span><button type="button" class="credential-btn ghost icon danger credential-ink" data-catalog-act="remove" aria-label="移除模型">${credentialGlyph('trash',14)}</button>${credentialCatalogEffortHTML(model,engine)}${contextWindow}</li>`;
 }
 function credentialCatalogCopy(mode,kind){
   const name=kind?.name||'该 CLI';
@@ -262,11 +263,30 @@ function credentialCatalogRowModel(row){
   const id=row.querySelector('[data-catalog-field="id"]').value,name=row.querySelector('[data-catalog-field="name"]').value;
   const metadata=row.dataset.catalogMetadata?JSON.parse(row.dataset.catalogMetadata):null;
   const model=metadata?.id===id.trim()?{...metadata,id,name}:{id,name},mode=row.querySelector('[data-catalog-effort-mode]');
+  const context=row.querySelector('[data-catalog-field="contextWindow"]');
+  if(context){
+    const value=context.dataset.modelId===id.trim()?context.value.trim():'';
+    delete model.contextWindow;
+    if(value)model.contextWindow=/^[0-9]+$/.test(value)&&Number(value)>0?Number(value):value;
+  }
   if(mode){
     delete model.reasoningEfforts;
     if(mode.value==='custom')model.reasoningEfforts=[...row.querySelectorAll('[data-catalog-effort]:checked')].map(input=>input.dataset.catalogEffort);
   }
   return model;
+}
+function syncCredentialCatalogInput(field){
+  field.closest('.credential-input')?.classList.remove('is-bad');
+  const row=field.closest('[data-catalog-row]');
+  if(field.dataset.catalogField==='id'){
+    const context=row?.querySelector('[data-catalog-field="contextWindow"]'),id=field.value.trim();
+    if(context&&context.dataset.modelId!==id){
+      context.value='';
+      context.dataset.modelId=id;
+      context.closest('.credential-input')?.classList.remove('is-bad');
+    }
+  }
+  syncCredentialCatalogEfforts(row);
 }
 function credentialCatalogFilledRows(catalog){return credentialCatalogRows(catalog).filter(row=>credentialCatalogModels([credentialCatalogRowModel(row)]).length)}
 function readCredentialCatalog(catalog){return credentialCatalogModels(credentialCatalogRows(catalog).map(credentialCatalogRowModel))}
@@ -437,7 +457,7 @@ function applyCredentialCatalogProbe(catalog){
       kept.add(id);
       if(picked.has(id)&&discovered.has(id)){
         const current=credentialCatalogRowModel(row),fresh=discovered.get(id);
-        row.outerHTML=credentialCatalogRowHTML({...current,...fresh,name:current.name,reasoningEfforts:current.reasoningEfforts},catalog.dataset.catalogEngine);
+        row.outerHTML=credentialCatalogRowHTML({...current,...fresh,name:current.name,reasoningEfforts:current.reasoningEfforts,contextWindow:current.contextWindow},catalog.dataset.catalogEngine);
       }
     }
   });
@@ -749,7 +769,7 @@ function credentialGroupHTML(group,user){
       ${git?`<p class="credential-group-note"${scope?'':' hidden'}>按仓库地址的协议、主机和端口匹配</p>`:''}
     </header>
     <div class="credential-group-body">
-      <div class="credential-rows">${kinds.map(kind=>credentialRowHTML(kind,user)).join('')}${git?'<div data-credential-git-rows></div><div data-credential-plain-http></div>':''}</div>
+      <div class="credential-rows">${kinds.map(kind=>credentialRowHTML(kind,user)).join('')}${git?'<div data-credential-git-rows></div>':''}</div>
       ${credentialAddMenu(group,user)}
       ${git?'':`<a class="credential-row-main credential-subscription" href="#/runners" aria-labelledby="credentialSubscriptionTitle credentialSubscriptionAction" aria-describedby="credentialSubscriptionHelp">
         ${credentialLogo({icon:'monitor'})}
@@ -772,11 +792,13 @@ function credentialPanelHTML(user){
 function credentialGitRowsHTML(http,ssh,showGitHub){
   return [...http.filter(item=>item.host!=='github.com'||!showGitHub).map(item=>({...item,kind:'http'})),...ssh.map(item=>({...item,kind:'ssh'}))].map(item=>{
     const isSSH=item.kind==='ssh';
-    const platform=GIT_ADD_OPTIONS.find(type=>type.id===(isSSH?'gitSshKey':item.platform))||GIT_ADD_OPTIONS.find(type=>type.id==='other');
-    const endpoint=item.host.startsWith('http://')?item.host:`${isSSH?'ssh':'https'}://${item.host}`;
+    const plain=!isSSH&&item.host.startsWith('http://');
+    const platformId=isSSH?'gitSshKey':plain?'gitPlainHttpCredentials':item.platform;
+    const platform=GIT_ADD_OPTIONS.find(type=>type.id===platformId)||GIT_ADD_OPTIONS.find(type=>type.id==='other');
+    const endpoint=plain?item.host:`${isSSH?'ssh':'https'}://${item.host}`;
     return `<div class="credential-row"><div class="credential-row-main">
       ${credentialLogo(platform)}<div class="credential-row-who"><b>${escapeHTML(item.name)}</b><small><span>${platform.name} · ${escapeHTML(endpoint)}</span></small></div>
-      <div class="credential-row-end"><button type="button" class="credential-btn ghost credential-row-link" aria-haspopup="dialog" data-credential-git-kind="${item.kind}" data-credential-git-id="${escapeHTML(item.id)}">${item.managed?'查看':'编辑'}${credentialGlyph('chevron-right',14)}</button></div>
+      <div class="credential-row-end"><button type="button" class="credential-btn ghost credential-row-link" aria-haspopup="dialog" data-credential-git-kind="${plain?'plain-http':item.kind}" data-credential-git-id="${escapeHTML(item.id)}">${item.managed?'查看':'编辑'}${credentialGlyph('chevron-right',14)}</button></div>
     </div></div>`;
   }).join('');
 }
@@ -788,10 +810,7 @@ async function loadCredentialGitRows(panel,user){
   const [httpRows,sshRows]=await Promise.allSettled([http,ssh]);
   if(!host.isConnected||state.currentUser?.id!==user.id)return;
   const listed=entry=>entry.status==='fulfilled'&&Array.isArray(entry.value)?entry.value:[];
-  const credentials=listed(httpRows),plain=credentials.filter(item=>item.host.startsWith('http://'));
-  host.innerHTML=credentialGitRowsHTML(credentials.filter(item=>!item.host.startsWith('http://')),listed(sshRows),user.gitHubCredentialConfigured);
-  const plainRow=panel.querySelector('[data-credential-plain-http]');
-  if(plainRow)plainRow.innerHTML=credentialRowHTML(CREDENTIAL_KINDS.find(kind=>kind.key==='gitPlainHttpCredentials'),{...user,gitPlainHttpCredentialsConfigured:plain.length>0});
+  host.innerHTML=credentialGitRowsHTML(listed(httpRows),listed(sshRows),user.gitHubCredentialConfigured);
   const note=panel.querySelector('[data-credential-group="platform"] .credential-group-note');
   if(note)note.hidden=!user.gitHubCredentialConfigured&&!host.firstElementChild;
   hydrateCredentialIcons(host);
@@ -1196,7 +1215,11 @@ function bindCredentialPanel(panel){
   panel.onclick=event=>{
     const target=event.target;
     const git=target.closest('[data-credential-git-kind]');
-    if(git)return git.dataset.credentialGitKind==='ssh'?openGitSSHKeys('',{id:git.dataset.credentialGitId}):openGitHTTPCredentials({id:git.dataset.credentialGitId});
+    if(git){
+      const {credentialGitKind:kind,credentialGitId:id}=git.dataset;
+      if(kind==='ssh')return openGitSSHKeys('',{id});
+      return openGitHTTPCredentials({id,plain:kind==='plain-http'});
+    }
     const eye=target.closest('[data-credential-eye]');if(eye)return toggleCredentialSecret(eye);
     const row=target.closest('[data-credential-row]');if(!row)return;
     const catalogAction=target.closest('[data-catalog-act]');
@@ -1238,8 +1261,7 @@ function bindCredentialPanel(panel){
     const catalog=event.target.closest('[data-credential-catalog]');
     if(catalog){
       if(event.target.closest('[data-catalog-probe]'))return syncCredentialCatalogProbe(catalog);
-      event.target.closest('.credential-input')?.classList.remove('is-bad');
-      syncCredentialCatalogEfforts(event.target.closest('[data-catalog-row]'));
+      syncCredentialCatalogInput(event.target);
     }
     if(['extra','baseUrl','protocol'].includes(event.target.name)){const catalogBox=form.querySelector('[data-credential-catalog]');if(catalogBox)syncCredentialCatalog(catalogBox)}
     if(event.target.name==='secret'||event.target.name==='baseUrl'){
@@ -1646,6 +1668,7 @@ function setPlatformTab(host,tab){
   state.platformTab=tab;
   host.querySelectorAll('[data-platform-tab]').forEach(b=>{const on=b.dataset.platformTab===tab;b.classList.toggle('on',on);b.setAttribute('aria-selected',String(on));b.tabIndex=on?0:-1});
   host.querySelectorAll('[data-platform-panel]').forEach(p=>{p.hidden=p.dataset.platformPanel!==tab});
+  if(tab==='jenkins')loadPlatformJenkins(host);
 }
 function bindPlatformTabs(host){
   const bar=host.querySelector('#platformTabs');if(!bar)return;
@@ -1805,7 +1828,7 @@ function renderPlatformAdminPanel(){
   loadPlatformAccounts(host);
   loadPlatformSharedKey(host);
   loadPlatformSSHHosts(host);
-  loadPlatformJenkins(host);
+  if(tab==='jenkins')loadPlatformJenkins(host);
   loadPlatformAdmins(host);
 }
 

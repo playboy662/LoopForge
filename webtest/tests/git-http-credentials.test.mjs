@@ -88,13 +88,22 @@ test('Git HTTPS credentials are managed per host with write-only tokens and veri
   assert.equal(app.evaluate('state.currentUser.gitHttpCredentialsConfigured'), true);
 });
 
-test('Git HTTP has a separate settings entry and preserves the explicit port', async (t) => {
+test('Git HTTP is added from the menu and managed per saved host', async (t) => {
   const app = await loadApp();
   t.after(app.close);
   const endpoint = '/api/users/1/git-http-credentials';
   const secure = { id: 'secure', name: 'Secure Git', platform: 'gitlab', host: 'git.example.org' };
   const plain = { id: 'plain', name: 'Plain Git', platform: 'gitlab', host: 'http://192.0.2.10:9433' };
-  app.router.get(endpoint, [secure, plain]);
+  let credentials = [secure];
+  app.router.get(endpoint, () => credentials);
+  app.router.put(endpoint, ({ body }) => {
+    credentials = [secure, { ...plain, name: body.name, host: body.host, username: body.username }];
+    return credentials;
+  });
+  app.router.delete(`${endpoint}/plain`, () => {
+    credentials = [secure];
+    return credentials;
+  });
   app.evaluate(`
     state.currentUser={...state.data.users[0],id:1,isGuest:false,gitHttpCredentialsConfigured:true};
     state.data.users=[state.currentUser];
@@ -102,14 +111,41 @@ test('Git HTTP has a separate settings entry and preserves the explicit port', a
   `);
   await settle(6);
 
-  const row = app.document.querySelector('[data-credential-row="gitPlainHttpCredentials"]');
-  assert.ok(row?.classList.contains('is-configured'));
-  row.querySelector('[data-credential-act="setup"]').click();
+  const rows = () => app.document.querySelector('[data-credential-git-rows]');
+  assert.doesNotMatch(rows().textContent, /Git HTTP/);
+  assert.equal(app.document.querySelector('[data-credential-row="gitPlainHttpCredentials"]'), null);
+  const menu = app.document.querySelector('[data-credential-add-menu="platform"]');
+  const option = menu.querySelector('option[value="gitPlainHttpCredentials"]');
+  assert.ok(option);
+  option.selected = true;
+  menu.dispatchEvent(new app.window.Event('change', { bubbles: true }));
   await settle(6);
-  const dialog = app.document.querySelector('#gitHTTPCredentialDialog');
+  const activeDialog = () => app.document.querySelector('#gitHTTPCredentialDialog');
+  let dialog = activeDialog();
+  const form = dialog.querySelector('form');
   assert.match(dialog.textContent, /Git HTTP 访问令牌/);
-  assert.match(dialog.textContent, /192\.0\.2\.10:9433/);
+  assert.equal(form.hidden, false);
+  form.elements.host.value = plain.host;
+  form.elements.name.value = plain.name;
+  form.elements.token.value = 'git-http-test-token';
+  form.dispatchEvent(new app.window.Event('submit', { bubbles: true, cancelable: true }));
+  await settle(6);
+  dialog.querySelector('[data-http-cred-close]').click();
+  const edit = rows().querySelector('[data-credential-git-id="plain"]');
+  assert.match(edit.closest('.credential-row').textContent, /Plain Git\s*Git HTTP · http:\/\/192\.0\.2\.10:9433/);
+  edit.click();
+  await settle(6);
+  dialog = activeDialog();
+  assert.equal(dialog.querySelector('form').elements.host.value, plain.host);
+  assert.equal(dialog.querySelector('form').elements.host.readOnly, true);
+  assert.equal(dialog.querySelector('form').elements.token.value, '');
   assert.doesNotMatch(dialog.textContent, /Secure Git/);
+  dialog.querySelector('[data-http-cred-delete="plain"]').click();
+  dialog.querySelector('[data-http-cred-remove="plain"]').click();
+  await settle(6);
+  assert.equal(rows().querySelector('[data-credential-git-id="plain"]'), null);
+  assert.ok(rows().querySelector('[data-credential-git-id="secure"]'));
+  assert.equal(app.document.querySelector('[data-credential-row="gitPlainHttpCredentials"]'), null);
   assert.equal(app.evaluate(`parseGongfengRepoURL('http://192.0.2.10:9433/team/code')?.cloneUrl`),
     'http://192.0.2.10:9433/team/code');
   assert.equal(app.evaluate(`parseGongfengRepoURL('http://git.example.com/team/code.git')`), null);

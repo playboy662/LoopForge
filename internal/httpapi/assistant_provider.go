@@ -176,6 +176,13 @@ func runAlternateAssistantCLI(ctx context.Context, req assistantCLIRequest, user
 	if err != nil {
 		return "", "", err
 	}
+	if req.Executor == "codex" {
+		window := domain.CLIContextWindow(user.CodexModels, req.Model)
+		if window > 0 {
+			prompt := command.Argv[len(command.Argv)-1]
+			command.Argv = append(runtime.CodexContextWindowArgs(command.Argv[:len(command.Argv)-1], window), prompt)
+		}
+	}
 	command = command.WithPrivateHomeDir(dir)
 	if err = os.MkdirAll(filepath.Join(dir, "tmp"), 0700); err != nil {
 		return "", "", err

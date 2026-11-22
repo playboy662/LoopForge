@@ -48,6 +48,7 @@ type TelemetryContext struct {
 	RunID                 string `json:"runId"`
 	ParentRunID           string `json:"parentRunId,omitempty"`
 	ParentNodeID          string `json:"parentNodeId,omitempty"`
+	JenkinsPath           string `json:"jenkinsPath,omitempty"`
 	// WorkspaceRunID names the run that owns the workspace a child SOP works
 	// in: the top-level run of its SOP chain. Empty means the run owns its
 	// own workspace.

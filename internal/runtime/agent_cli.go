@@ -470,9 +470,13 @@ func ApplyAgentCLICredential(kind string, cred ProviderCredential, options Agent
 		} else {
 			lines = append(lines, "type = "+strconv.Quote(providerType), "base_url = "+strconv.Quote(baseURL))
 		}
+		window := domain.CLIContextWindow(cred.Models, model)
+		if window <= 0 {
+			window = 262144 // Existing Kimi configuration for custom providers.
+		}
 		lines = append(lines, "api_key_env = "+strconv.Quote(agentCLIKeyEnv), "",
 			"[models.agentflow]", `provider = "agentflow"`, "model = "+strconv.Quote(model),
-			"max_context_size = 262144")
+			"max_context_size = "+strconv.Itoa(window))
 		effort := strings.TrimSpace(options.Effort)
 		if err := domain.ValidateAgentEffort(effort, kind); err != nil {
 			return nil, nil, err

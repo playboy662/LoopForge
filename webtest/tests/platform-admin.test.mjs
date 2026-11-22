@@ -55,7 +55,7 @@ test('platform admin page separates accounts, admins, shared keys and SSH host t
   const host = app.document.querySelector('#platformAdminPanel');
   const panel = (id) => host.querySelector(`[data-platform-panel="${id}"]`);
   const tab = (id) => host.querySelector(`[data-platform-tab="${id}"]`);
-  const shown = () => ['accounts', 'admins', 'sharedKey', 'sshTrust'].filter((id) => !panel(id).hidden);
+  const shown = () => ['accounts', 'admins', 'sharedKey', 'sshTrust', 'jenkins'].filter((id) => !panel(id).hidden);
 
   assert.deepEqual(shown(), ['accounts'], 'accounts open first');
   assert.equal(tab('accounts').getAttribute('aria-selected'), 'true');
@@ -71,6 +71,10 @@ test('platform admin page separates accounts, admins, shared keys and SSH host t
   host.querySelector('#platformTabs').dispatchEvent(new app.window.KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
   assert.deepEqual(shown(), ['sshTrust']);
   assert.ok(panel('sshTrust').querySelector('#platformSSHHostTrustCard'));
+  host.querySelector('#platformTabs').dispatchEvent(new app.window.KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
+  assert.deepEqual(shown(), ['jenkins']);
+  assert.ok(panel('jenkins').querySelector('[data-jenkins-connection]'));
+  assert.equal(panel('jenkins').querySelector('[name="projectIds"]'), null, 'Job selection lives in project settings');
   host.querySelector('#platformTabs').dispatchEvent(new app.window.KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
   assert.deepEqual(shown(), ['accounts'], 'arrow keys wrap around');
   host.querySelector('#platformTabs').dispatchEvent(new app.window.KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));

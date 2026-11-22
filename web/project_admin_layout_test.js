@@ -2,7 +2,7 @@
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const vm = require("node:vm");
-const [projectsPath, drawerPath, issuesPath] = process.argv.slice(2);
+const [projectsPath, drawerPath, issuesPath, jenkinsPath] = process.argv.slice(2);
 
 const same=(a,b,m)=>assert.deepEqual(JSON.parse(JSON.stringify(a)),b,m);
 
@@ -72,6 +72,7 @@ const gitParsers = fs.readFileSync(require("node:path").join(__dirname, "app", "
 vm.runInContext(gitParsers.slice(gitParsers.indexOf("globalThis.LoopForgeGongfengRepository")), ctx);
 
 for (const name of ["parseGongfengRepoURL","repoDisplayPath","repoProviderLabel"]) vm.runInContext(extract(fs.readFileSync(issuesPath,"utf8"),name),ctx);
+vm.runInContext(fs.readFileSync(jenkinsPath,"utf8"),ctx);
 vm.runInContext(fs.readFileSync(projectsPath,"utf8"),ctx);
 vm.runInContext(fs.readFileSync(drawerPath,"utf8"),ctx);
 vm.runInContext("projectAdminFail=(form,name,message)=>{globalThis.__fail={name,message};return false}",ctx);
@@ -157,12 +158,13 @@ assert.match(empty,/粘贴 Git HTTPS 链接或 Git SSH 地址[^]*确认分支[^]
 assert.match(empty,/添加第一个仓库/);
 
 // Detail panels.
-same(vm.runInContext("PROJECT_ADMIN_TABS.map(t=>t.id)",ctx),["basic","repos","members","tapd"]);
+same(vm.runInContext("PROJECT_ADMIN_TABS.map(t=>t.id)",ctx),["basic","repos","jenkins","members","tapd"]);
 const draft=ctx.projectDraftFrom(projects[0]);
 same(draft.members.map(m=>m.userId),[2,3,4,5]);
 same([...ctx.projectPeopleIds(draft)],[1,2,3,4,5]);
 const edit=ctx.projectAdminFormHTML(draft,{creating:false,custom:false,repos:repositories.slice(0,2),saved:projects[0]});
-assert.equal((edit.match(/data-pa-panel="/g)||[]).length,4);
+assert.equal((edit.match(/data-pa-panel="/g)||[]).length,5);
+assert.match(edit,/data-project-jenkins/);
 assert.match(edit,/name="id" value="agentflow" required readonly/);
 assert.match(edit,/修改 Key/);
 assert.match(edit,/标识用于接口与链接，创建后不可修改/);

@@ -1599,6 +1599,7 @@ func runAssistantCLI(ctx context.Context, req assistantCLIRequest, user domain.U
 		if !req.RunnerLogin {
 			engineOpts.User = runtime.ProviderCredential{APIKey: user.CodexAPIKey, BaseURL: user.CodexBaseURL}
 		}
+		engineOpts.User.Models = user.CodexModels
 		inv, err = prepareAssistantCodexInvocation(engineOpts)
 	default:
 		if runtime.IsAgentCLI(engine) {

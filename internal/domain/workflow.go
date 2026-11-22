@@ -47,7 +47,7 @@ type WorkflowNode struct {
 	PlanItemID   string   `json:"planItemId,omitempty"`
 	ID           string   `json:"id"`
 	Name         string   `json:"name"`
-	Type         string   `json:"type"` // agent, script, approval, sop
+	Type         string   `json:"type"` // agent, script, approval, sop, jenkins
 	// MetricStage explicitly assigns this node's execution time to a Loop phase.
 	// Empty means a legacy workflow without a classification; "none" opts out.
 	MetricStage      string `json:"metricStage,omitempty"` // clarification, development, testing, none
@@ -189,6 +189,7 @@ type WorkflowDefinition struct {
 	// that inherit the responsible user's executor. An empty entry defers
 	// selection until the role starts on the bound machine.
 	ExecutorDefaults map[string]AssistantDefaults `json:"executorDefaults,omitempty"`
+	JenkinsTargets   map[string]string            `json:"jenkinsTargets,omitempty"` // Run snapshot only.
 }
 
 // UnmarshalJSON migrates the pre-workflow-sandbox shape while the legacy node

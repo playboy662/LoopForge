@@ -164,6 +164,7 @@ type NodeRun struct {
 	GateResult      *GateResult `json:"gateResult,omitempty"`
 	ChildRunID      string      `json:"childRunId,omitempty"`
 	JenkinsURL      string      `json:"jenkinsUrl,omitempty"`
+	JenkinsQueued   bool        `json:"jenkinsQueued,omitempty"`
 	StartedAt       time.Time   `json:"startedAt,omitzero"`
 	FinishedAt      time.Time   `json:"finishedAt,omitzero"`
 }

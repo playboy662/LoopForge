@@ -133,7 +133,7 @@ func TestProviderUserCredentials(t *testing.T) {
 			u, _ := st.UserByLoginName(login)
 			codexURL, claudeURL := "https://codex.example/v1", "https://claude.example"
 			levels, defaultOnly := []string{" low ", "xhigh", "low"}, []string{}
-			codexModels := []domain.CLIModel{{ID: "gpt-5.5", Name: "gpt-5.5", ReasoningEfforts: &levels}}
+			codexModels := []domain.CLIModel{{ID: "gpt-5.5", Name: "gpt-5.5", ReasoningEfforts: &levels, ContextWindow: 272000}}
 			claudeModels := []domain.CLIModel{{ID: "claude-sonnet", Name: "Sonnet", ReasoningEfforts: &defaultOnly}}
 			_, err = st.UpdateUserCredentials(u.ID, UserCredentialUpdate{CodexAPIKey: "codex-secret", CodexBaseURL: &codexURL, CodexModels: &codexModels, ClaudeCodeAPIKey: "claude-secret", ClaudeCodeBaseURL: &claudeURL, ClaudeCodeModels: &claudeModels})
 			if err != nil {
@@ -148,7 +148,7 @@ func TestProviderUserCredentials(t *testing.T) {
 				t.Fatal(err)
 			}
 			got, ok := st.User(u.ID)
-			if !ok || got.CodexAPIKey != "codex-secret" || got.ClaudeCodeAPIKey != "claude-secret" || got.CodexBaseURL != codexURL || got.ClaudeCodeBaseURL != claudeURL || len(got.CodexModels) != 1 || got.CodexModels[0].ID != "gpt-5.5" || got.CodexModels[0].Name != "" || len(got.ClaudeCodeModels) != 1 || got.ClaudeCodeModels[0].Name != "Sonnet" {
+			if !ok || got.CodexAPIKey != "codex-secret" || got.ClaudeCodeAPIKey != "claude-secret" || got.CodexBaseURL != codexURL || got.ClaudeCodeBaseURL != claudeURL || len(got.CodexModels) != 1 || got.CodexModels[0].ID != "gpt-5.5" || got.CodexModels[0].Name != "" || got.CodexModels[0].ContextWindow != 272000 || len(got.ClaudeCodeModels) != 1 || got.ClaudeCodeModels[0].Name != "Sonnet" {
 				t.Fatalf("credentials did not survive refresh and partial update: %+v %+v", got.CodexModels, got.ClaudeCodeModels)
 			}
 			if efforts := got.CodexModels[0].ReasoningEfforts; efforts == nil || !slices.Equal(*efforts, []string{"low", "xhigh"}) {

@@ -20,6 +20,9 @@ func (codexProvider) Materialize(ctx *providerMaterializeContext) error {
 }
 
 func (codexProvider) Prepare(in providerInvocation) (CommandSpec, error) {
+	if _, explicit := codexModelFlag(in.Executor.Args); explicit {
+		in.Executor.Model = ""
+	}
 	argv := buildProviderArgs(in)
 	argv = dropCodexResumeArgs(argv)
 	// exec options must precede the `resume` subcommand, so the effort config
@@ -70,6 +73,63 @@ func withCodexSandboxMode(argv []string, mode string) []string {
 		}
 	}
 	return append(out, "--sandbox", mode)
+}
+
+// CodexInvocationModel resolves the model passed to exec, including an explicit
+// executor argument. An empty result leaves model selection to Codex.
+func CodexInvocationModel(model string, args []string) string {
+	if explicit, ok := codexModelFlag(args); ok {
+		return explicit
+	}
+	return model
+}
+
+func codexModelFlag(args []string) (model string, found bool) {
+	for i, arg := range args {
+		if arg == "--" {
+			break
+		}
+		switch {
+		case (arg == "--model" || arg == "-m") && i+1 < len(args):
+			model, found = args[i+1], true
+		case strings.HasPrefix(arg, "--model="):
+			model, found = strings.TrimPrefix(arg, "--model="), true
+		case strings.HasPrefix(arg, "-m") && arg != "-m":
+			model, found = strings.TrimPrefix(arg[2:], "="), true
+		}
+	}
+	return model, found
+}
+
+// CodexContextWindowArgs adds a selected model's user override to the options
+// preceding any resume subcommand or prompt.
+func CodexContextWindowArgs(args []string, window int) []string {
+	if window <= 0 || codexHasConfigOverride(args, "model_context_window") {
+		return args
+	}
+	return append(append([]string(nil), args...), "-c", "model_context_window="+strconv.Itoa(window))
+}
+
+func codexHasConfigOverride(argv []string, key string) bool {
+	for i := 0; i < len(argv); i++ {
+		var value string
+		switch arg := argv[i]; {
+		case arg == "-c" || arg == "--config":
+			if i+1 == len(argv) {
+				return false
+			}
+			i++
+			value = argv[i]
+		case strings.HasPrefix(arg, "--config="):
+			value = strings.TrimPrefix(arg, "--config=")
+		case strings.HasPrefix(arg, "-c") && !strings.HasPrefix(arg, "--"):
+			value = strings.TrimPrefix(strings.TrimPrefix(arg, "-c"), "=")
+		}
+		if name, _, found := strings.Cut(value, "="); found && strings.TrimSpace(name) == key {
+			return true
+		}
+	}
+	return false
 }
 
 func codexHasReasoningEffort(argv []string) bool {
