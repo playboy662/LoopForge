@@ -189,6 +189,10 @@ func validate(wf domain.WorkflowDefinition) error {
 func validateNode(workflowID string, n domain.WorkflowNode) error {
 	switch n.Type {
 	case "agent", "approval":
+	case "jenkins":
+		if strings.TrimSpace(n.JenkinsBindingID) == "" || len(n.ArtifactOutputs) > 0 || n.RunOnWorkspaceRebuild {
+			return fmt.Errorf("node %s requires a Jenkins binding and cannot declare workspace artifacts", n.ID)
+		}
 	case "sop":
 		if strings.TrimSpace(n.SOPWorkflowID) == "" {
 			return fmt.Errorf("node %s sopWorkflowId is required", n.ID)

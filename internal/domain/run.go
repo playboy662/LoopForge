@@ -163,6 +163,7 @@ type NodeRun struct {
 	ToolCalls       int         `json:"toolCalls"`
 	GateResult      *GateResult `json:"gateResult,omitempty"`
 	ChildRunID      string      `json:"childRunId,omitempty"`
+	JenkinsURL      string      `json:"jenkinsUrl,omitempty"`
 	StartedAt       time.Time   `json:"startedAt,omitzero"`
 	FinishedAt      time.Time   `json:"finishedAt,omitzero"`
 }

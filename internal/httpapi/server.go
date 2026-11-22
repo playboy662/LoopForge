@@ -74,6 +74,7 @@ type Server struct {
 	users           *usersHandlers // users.go
 	sshHostTrust    *sshHostTrustHandlers
 	projects        *projectsHandlers
+	jenkins         *jenkinsHandlers
 	insights        *insightsHandlers
 	businessDomains *businessDomainsHandlers
 	catalog         *catalogHandlers  // catalog.go
@@ -161,6 +162,7 @@ func newWithNotifications(s *repo.Store, e *engine.Engine, syncSvc *tracker.Serv
 		businessDomains: &businessDomainsHandlers{deps: d},
 		insights:        &insightsHandlers{deps: d},
 		projects:        &projectsHandlers{deps: d},
+		jenkins:         &jenkinsHandlers{deps: d},
 		mcp:             &mcpHandlers{deps: d},
 		market:          &marketHandlers{deps: d},
 		skillhub:        &skillhubHandlers{deps: d, client: newSkillhubClientFromEnv()},
@@ -362,6 +364,13 @@ func newWithNotifications(s *repo.Store, e *engine.Engine, syncSvc *tracker.Serv
 	g.GET("/api/business-domain-report", api.businessDomains.report)
 	g.PUT("/api/projects/:id/business-domain", api.projects.businessDomainAssignment)
 	g.GET("/api/projects/:id/business-domain/history", api.projects.businessDomainAssignment)
+	g.GET("/api/platform/jenkins", api.jenkins.connections)
+	g.PUT("/api/platform/jenkins", api.jenkins.connections)
+	g.GET("/api/projects/:id/jenkins/connections", api.jenkins.projectConnections)
+	g.GET("/api/projects/:id/jenkins/jobs", api.jenkins.jobs)
+	g.GET("/api/projects/:id/jenkins/bindings", api.jenkins.bindings)
+	g.PUT("/api/projects/:id/jenkins/bindings", api.jenkins.bindings)
+	g.DELETE("/api/projects/:id/jenkins/bindings/:binding", api.jenkins.bindings)
 	g.GET("/api/projects", api.projects.projects)
 	g.PUT("/api/projects", api.projects.projects)
 	g.POST("/api/projects", api.projects.projects)

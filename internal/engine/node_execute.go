@@ -226,7 +226,7 @@ func resolveNodeExecutor(st *repo.Store, node domain.WorkflowNode, agent domain.
 func workflowSandboxRequirements(st *repo.Store, wf domain.WorkflowDefinition) (runtime.SandboxRequirements, error) {
 	var requirements []runtime.SandboxRequirements
 	for _, node := range wf.Nodes {
-		if node.Type == "script" || node.Type == "command" || node.Type == "approval" || node.Type == "sop" {
+		if node.Type == "script" || node.Type == "command" || node.Type == "approval" || node.Type == "sop" || node.Type == "jenkins" {
 			continue
 		}
 		agent, ok := workflowAgent(st, wf, node.AgentID)
@@ -347,6 +347,9 @@ func (e *Engine) executeNode(ctx context.Context, runID string, wf domain.Workfl
 		executionAttempt = nr.Attempt
 		nr.StartedAt = time.Now().UTC()
 		nr.GateResult = nil
+		if node.Type == "jenkins" {
+			nr.JenkinsURL, nr.Output = "", ""
+		}
 		e.event(r, node.ID, "node.started", node.Name+" 开始执行")
 	})
 	if !started {
@@ -367,6 +370,19 @@ func (e *Engine) executeNode(ctx context.Context, runID string, wf domain.Workfl
 			return
 		}
 		e.nodeFailedAt(runID, node, executionAttempt, executionGeneration, err, allowReject)
+	}
+	if node.Type == "jenkins" {
+		if alignOnlyRun(currentLease) {
+			e.finishJenkinsNode(runID, node, executionAttempt, executionGeneration, "")
+			return
+		}
+		url, err := e.triggerJenkins(ctx, currentLease, node, executionAttempt)
+		if err != nil {
+			failNode(err, false)
+		} else {
+			e.finishJenkinsNode(runID, node, executionAttempt, executionGeneration, url)
+		}
+		return
 	}
 	if node.Type == "sop" {
 		e.executeSOPNode(ctx, runID, wf, node, executionAttempt, executionGeneration)

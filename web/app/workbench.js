@@ -1629,6 +1629,7 @@ const PLATFORM_TABS=[
   {id:'admins',zh:'平台管理员',en:'Admins'},
   {id:'sharedKey',zh:'共享 CodeBuddy Key',en:'Shared CodeBuddy Key'},
   {id:'sshTrust',zh:'Git SSH 主机信任',en:'Git SSH Host Trust'},
+  {id:'jenkins',zh:'Jenkins 连接',en:'Jenkins connections'},
 ];
 function platformTabsHTML(active){
   return `<div class="pa-tabs-wrap platform-tabs-wrap"><div class="pa-tabs platform-tabs" id="platformTabs" role="tablist" aria-label="平台管理分区">${PLATFORM_TABS.map(t=>{
@@ -1798,11 +1799,13 @@ function renderPlatformAdminPanel(){
     `)}
     ${platformTabPanel('sharedKey',tab,platformSharedKeyHTML())}
     ${platformTabPanel('sshTrust',tab,platformSSHHostTrustHTML())}
+    ${platformTabPanel('jenkins',tab,platformJenkinsHTML())}
   `;
   bindPlatformTabs(host);
   loadPlatformAccounts(host);
   loadPlatformSharedKey(host);
   loadPlatformSSHHosts(host);
+  loadPlatformJenkins(host);
   loadPlatformAdmins(host);
 }
 

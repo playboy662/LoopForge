@@ -50,9 +50,10 @@ type WorkflowNode struct {
 	Type         string   `json:"type"` // agent, script, approval, sop
 	// MetricStage explicitly assigns this node's execution time to a Loop phase.
 	// Empty means a legacy workflow without a classification; "none" opts out.
-	MetricStage string `json:"metricStage,omitempty"` // clarification, development, testing, none
-	AgentID     string `json:"agentId,omitempty"`
-	ExecutorID  string `json:"executorId,omitempty"`
+	MetricStage      string `json:"metricStage,omitempty"` // clarification, development, testing, none
+	AgentID          string `json:"agentId,omitempty"`
+	ExecutorID       string `json:"executorId,omitempty"`
+	JenkinsBindingID string `json:"jenkinsBindingId,omitempty"`
 	// SOPWorkflowID is the referenced workflow when Type is "sop".
 	SOPWorkflowID string `json:"sopWorkflowId,omitempty"`
 	// RunOnWorkspaceRebuild replays this script when restoring an already-used environment.

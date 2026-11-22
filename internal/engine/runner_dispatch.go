@@ -510,6 +510,11 @@ func (e *Engine) defaultExecutionRunner(run domain.Run) string {
 // frozen execution target cannot be reached. The actual dispatch repeats the
 // same validation to cover a disconnect between this check and execution.
 func (e *Engine) validateExecutionReconnect(run domain.Run, nodeID string) error {
+	for _, node := range run.WorkflowSnapshot.Nodes {
+		if node.ID == nodeID && node.Type == "jenkins" {
+			return nil
+		}
+	}
 	runnerID := e.defaultExecutionRunner(run)
 	if runnerID == "" || isPoolRun(run) {
 		// A pool run is rebound to another pool runner when its node starts.
