@@ -57,8 +57,8 @@ func prepareRunGitBinding(ctx context.Context, sandbox Sandbox, command CommandS
 			Params struct{ Protocol, Host string } `json:"params"`
 		}
 		result := gitCredentialReply{}
-		if len(raw) <= 4096 && json.Unmarshal(raw, &request) == nil && request.Method == gitCredentialMethod && request.Params.Protocol == "https" {
-			if host, err := gitwork.HTTPSHostScope(request.Params.Host); err == nil && ctx.Err() == nil {
+		if len(raw) <= 4096 && json.Unmarshal(raw, &request) == nil && request.Method == gitCredentialMethod {
+			if host, err := gitwork.GitCredentialScope(request.Params.Protocol, request.Params.Host); err == nil && ctx.Err() == nil {
 				if credential, ok := secrets[host]; ok {
 					result = gitCredentialReply{Username: credential.GitUsername(), Password: credential.Token, Platform: credential.Platform}
 					if !credential.ExpiresAt.IsZero() {

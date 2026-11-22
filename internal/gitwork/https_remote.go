@@ -7,18 +7,19 @@ import (
 	"unicode"
 )
 
-// HTTPSRepositoryURL validates a transport URL without identifying the host's
+// HTTPSRepositoryURL validates an HTTP(S) transport URL without identifying the host's
 // product. Credentials are requested separately through the Git helper.
 func HTTPSRepositoryURL(raw string) (remote, name string, err error) {
 	raw = strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(raw), "git clone "))
 	u, err := url.Parse(raw)
-	if err != nil || u.Scheme != "https" || u.User != nil || u.RawQuery != "" || u.Fragment != "" || strings.ContainsAny(raw, "\\\t\r\n ") {
-		return "", "", fmt.Errorf("请提供不含凭据、查询参数或片段的 HTTPS Git 克隆地址")
+	if err != nil || (u.Scheme != "https" && u.Scheme != "http") || u.User != nil || u.ForceQuery || u.RawQuery != "" || strings.ContainsAny(raw, "#\\\t\r\n ") {
+		return "", "", fmt.Errorf("请提供不含凭据、查询参数或片段的 HTTP(S) Git 克隆地址")
 	}
-	host, err := HTTPSHostScope(u.Host)
+	scope, err := ConfiguredGitCredentialScope(u.Scheme + "://" + u.Host)
 	if err != nil {
 		return "", "", err
 	}
+	host := strings.TrimPrefix(scope, "http://")
 	path := strings.Trim(u.Path, "/")
 	if path == "" {
 		return "", "", fmt.Errorf("Git 地址缺少仓库路径")

@@ -2,6 +2,7 @@ package domain
 
 import (
 	"fmt"
+	"maps"
 	"path"
 	"strconv"
 	"strings"
@@ -143,6 +144,26 @@ const RunnerVersionGitSSHKnownHosts = "0.11.1"
 
 // Older runners would ignore the custom endpoint and use the official one.
 const RunnerVersionCodeBuddyBaseURL = "0.11.2"
+
+// RunnerVersionGitPlainHTTP adds the plaintext transport to the Git helpers.
+const RunnerVersionGitPlainHTTP = "0.11.3"
+
+func (r Runner) SupportsGitPlainHTTP() bool {
+	return versionAtLeast(r.RunnerVersion, RunnerVersionGitPlainHTTP)
+}
+
+func (r Runner) GitExecutionCredentials(credentials map[string]GitHTTPExecutionCredential) map[string]GitHTTPExecutionCredential {
+	if r.SupportsGitPlainHTTP() {
+		return credentials
+	}
+	compatible := maps.Clone(credentials)
+	for host := range compatible {
+		if strings.HasPrefix(host, "http://") {
+			delete(compatible, host)
+		}
+	}
+	return compatible
+}
 
 func (r Runner) SupportsCodeBuddyBaseURL() bool {
 	return versionAtLeast(r.RunnerVersion, RunnerVersionCodeBuddyBaseURL)

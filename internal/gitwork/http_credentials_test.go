@@ -49,3 +49,40 @@ func TestHTTPSRepositoryURLDoesNotNeedAPlatform(t *testing.T) {
 		}
 	}
 }
+
+func TestPlainHTTPGitRequiresExactOptInAndCredentialScope(t *testing.T) {
+	const authority = "192.0.2.10:9433"
+	const remote = "http://" + authority + "/team/code.git"
+	t.Setenv(HTTPGitAllowlistEnv, "")
+	if _, _, err := HTTPSRepositoryURL(remote); err == nil {
+		t.Fatal("HTTP accepted without administrator opt-in")
+	}
+	t.Setenv(HTTPGitAllowlistEnv, authority)
+	if got, name, err := HTTPSRepositoryURL(remote); err != nil || got != remote || name != "code" {
+		t.Fatalf("registered endpoint: %q %q %v", got, name, err)
+	}
+	for _, address := range []string{
+		"http://192.0.2.10:9443/team/code.git",
+		"http://192.0.2.11:9433/team/code.git",
+		"http://someone:secret@" + authority + "/team/code.git",
+	} {
+		if _, _, err := HTTPSRepositoryURL(address); err == nil {
+			t.Fatalf("unexpected HTTP endpoint accepted: %s", address)
+		}
+	}
+
+	ctx := WithHTTPRemote(WithHTTPCredentials(context.Background(), map[string]HTTPCredential{
+		"http://" + authority: {Username: "oauth2", Token: "fake-http-token"},
+	}), remote)
+	for _, tc := range []struct{ protocol, host string }{
+		{"http", authority}, {"https", authority}, {"http", "192.0.2.10:9443"},
+	} {
+		cmd := command(ctx, t.TempDir(), nil, []string{"credential", "fill"})
+		cmd.Stdin = strings.NewReader("protocol=" + tc.protocol + "\nhost=" + tc.host + "\n\n")
+		out, err := cmd.CombinedOutput()
+		matches := tc.protocol == "http" && tc.host == authority
+		if matches != (err == nil && strings.Contains(string(out), "password=fake-http-token")) {
+			t.Fatalf("unexpected credential result for %s %s", tc.protocol, tc.host)
+		}
+	}
+}

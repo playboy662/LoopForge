@@ -864,7 +864,7 @@ func (h *runnersHandlers) runnerTaskClaim(c *gin.Context) {
 			c.Header("Cache-Control", "no-store")
 		}
 		if task.Invocation != nil && task.Invocation.GitHTTPUserID > 0 && runner.SupportsGitHTTP() {
-			task.Invocation.GitHTTPCredentials = h.repo.GitHTTPCredentialSecrets(c.Request.Context(), task.Invocation.GitHTTPUserID)
+			task.Invocation.GitHTTPCredentials = runner.GitExecutionCredentials(h.repo.GitHTTPCredentialSecrets(c.Request.Context(), task.Invocation.GitHTTPUserID))
 			task.Invocation.GitHTTPUserID = 0
 			c.Header("Cache-Control", "no-store")
 		}

@@ -80,6 +80,9 @@ func command(ctx context.Context, workspace string, sshEnv map[string]string, ar
 	dir := CommandDir(workspace)
 	credential, host, _ := httpCredentialForCommand(ctx, args)
 	authArgs := scopedHTTPAuthArgs(credential)
+	if strings.HasPrefix(host, "http://") {
+		authArgs = append(authArgs, "-c", "http.followRedirects=false")
+	}
 	cmd := exec.CommandContext(ctx, "git", append(authArgs, args...)...)
 	cmd.Dir = dir
 	cmd.Env = WithEnvValue(Env(""), "PWD", dir)

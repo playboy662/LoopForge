@@ -103,11 +103,13 @@ func (e *Engine) prepareLocalEnvironment(ctx context.Context, run domain.Run, en
 
 func (e *Engine) preparedWorkspaceRequest(run domain.Run, request domain.RunnerWorkspaceRequest) (domain.RunnerWorkspaceRequest, error) {
 	runnerID := e.defaultExecutionRunner(run)
+	var runner domain.Runner
 	if runnerID != "" {
 		if run.ExecutionContext.RunnerWorkspaceLayout != domain.RunnerWorkspaceLayoutShared && len(runtime.PreparationNodes(runtime.WorkspacePreparationWorkflow(run.WorkflowSnapshot))) > 0 {
 			return request, fmt.Errorf("此历史运行使用逐节点工作区，不能自动重建共享环境；请重新发起一次运行")
 		}
-		runner, ok := e.repo.Runner(runnerID)
+		var ok bool
+		runner, ok = e.repo.Runner(runnerID)
 		if run.IsWorkspace() && (!ok || !runner.SupportsConversationWorkspace()) {
 			return request, fmt.Errorf("对话工作区需要执行机器升级至 %s", domain.RunnerVersionConversationWorkspace)
 		}
@@ -159,14 +161,14 @@ func (e *Engine) preparedWorkspaceRequest(run domain.Run, request domain.RunnerW
 	request.TerminalGitHTTPCredentials = nil
 	terminalOpen := request.Operation == domain.RunnerWorkspaceOperationTerminal && request.Terminal != nil && request.Terminal.Operation == "open"
 	if runnerID != "" && (request.Operation == domain.RunnerWorkspaceOperationPrepare || terminalOpen) {
-		invocation.GitHTTPCredentials = credentials.GitHTTPCredentials
+		invocation.GitHTTPCredentials = runner.GitExecutionCredentials(credentials.GitHTTPCredentials)
 		if len(invocation.GitSSHRemotes()) > 0 {
 			invocation.GitSSHKeys = credentials.GitSSHKeys
 		}
 	}
 	if runnerID != "" && terminalOpen {
 		terminalCredentials := e.WorkspaceTerminalGitCredentials(context.Background(), run, request.TerminalOwner)
-		request.TerminalGitHTTPCredentials = terminalCredentials.HTTPS
+		request.TerminalGitHTTPCredentials = runner.GitExecutionCredentials(terminalCredentials.HTTPS)
 		request.TerminalGitSSHKeys = terminalCredentials.SSHKeys
 	}
 	request.RunStatus = run.Status

@@ -38,18 +38,22 @@ globalThis.LoopForgeGitSSH = function parseSSHRepository(raw) {
   return { provider: 'ssh', host: endpoint, project: `${host.toLowerCase()}${port === '22' ? '' : ':' + port}/${segments.join('/')}`, name, cloneUrl, webUrl: '' };
 };
 
-// Unknown HTTPS hosts use Git transport without identifying the hosting product.
+// Generic HTTP(S) remotes use Git transport without a hosting API adapter.
 globalThis.LoopForgeGitHTTPS = function parseHTTPSRepository(raw) {
   const address=String(raw||'').trim().replace(/^git clone\s+/i,'');
-  if(!/^https:\/\//i.test(address)||/[\s\\]/.test(address))return null;
+  if(!/^https?:\/\//i.test(address)||/[\s\\]/.test(address))return null;
   try{
-    const u=new URL(address),host=u.host.toLowerCase();
-    if(u.username||u.password||u.search||u.hash||['github.com','git.example.com'].includes(u.hostname.toLowerCase()))return null;
-    if(!/^[a-z0-9][a-z0-9.-]*(?::[0-9]+)?$/i.test(host)||u.hostname.includes('..')||/^\d+(?:\.\d+){3}$/.test(u.hostname))return null;
-    const parts=u.pathname.replace(/^\/+|\/+$/g,'').split('/');
-    if(parts.some(part=>!part||decodeURIComponent(part)==='.'||decodeURIComponent(part)==='..'))return null;
+    const u=new URL(address),plain=u.protocol==='http:';
+    const endpoint=plain?address.match(/^http:\/\/([a-z0-9.-]+):([1-9][0-9]*)(\/[^?#]*)$/i):null;
+    if(plain&&(!endpoint||endpoint[1].toLowerCase()!==u.hostname||Number(endpoint[2])>65535))return null;
+    const host=plain?`${u.hostname}:${endpoint[2]}`:u.host.toLowerCase();
+    if(u.username||u.password||/[?#]/.test(address)||(!plain&&['github.com','git.example.com'].includes(u.hostname.toLowerCase())))return null;
+    if(!/^[a-z0-9][a-z0-9.-]*(?::[0-9]+)?$/i.test(host)||u.hostname.includes('..')||(!plain&&/^\d+(?:\.\d+){3}$/.test(u.hostname)))return null;
+    const parts=(plain?endpoint[3]:u.pathname).replace(/^\/+|\/+$/g,'').split('/');
+    if(parts.some(part=>!part||decodeURIComponent(part).split('/').some(value=>!value||value==='.'||value==='..'||/[\x00-\x1f\x7f]/.test(value))))return null;
     const name=parts[parts.length-1].replace(/\.git$/,'');if(!name)return null;
-    const cloneUrl='https://'+host+'/'+parts.join('/');
+    const path=parts.join('/');
+    const cloneUrl=u.protocol+'//'+host+'/'+path;
     return {provider:'https',host,project:host+'/'+parts.join('/').replace(/\.git$/,''),name,cloneUrl,webUrl:cloneUrl.replace(/\.git$/,'')};
   }catch{return null}
 };

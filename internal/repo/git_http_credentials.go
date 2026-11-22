@@ -103,7 +103,7 @@ func (r *UsersRepo) SaveGitHTTPCredential(userID int64, existingID string, input
 	if existingID == domain.ManagedGitHTTPCredentialID {
 		return ErrGitHTTPCredentialManaged
 	}
-	host, err := gitwork.HTTPSHostScope(input.Host)
+	host, err := gitwork.ConfiguredGitCredentialScope(input.Host)
 	if err != nil {
 		return err
 	}
@@ -159,7 +159,7 @@ func (r *UsersRepo) DeleteGitHTTPCredential(userID int64, id string) error {
 // GitHTTPCredentialForHost returns the user's credential for exactly one
 // host[:port], refreshing a managed OAuth token first.
 func (r *UsersRepo) GitHTTPCredentialForHost(ctx context.Context, userID int64, host string) (domain.GitHTTPCredentialSecret, bool) {
-	host, err := gitwork.HTTPSHostScope(host)
+	host, err := gitwork.ConfiguredGitCredentialScope(host)
 	if err != nil || userID <= 0 {
 		return domain.GitHTTPCredentialSecret{}, false
 	}
@@ -228,7 +228,9 @@ func (r *UsersRepo) GitHTTPWorkspaceHosts(userID int64) map[string]string {
 	}
 	hosts := make(map[string]string, len(creds))
 	for _, cred := range creds {
-		hosts[cred.Host] = cred.Platform
+		if _, err := gitwork.ConfiguredGitCredentialScope(cred.Host); err == nil {
+			hosts[cred.Host] = cred.Platform
+		}
 	}
 	return hosts
 }

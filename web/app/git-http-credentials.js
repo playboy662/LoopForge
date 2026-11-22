@@ -4,7 +4,7 @@ const GIT_HTTP_PLATFORMS = [['github', 'GitHub / GitHub Enterprise'], ['gitlab',
 // remains the authority on what a host scope is.
 function gitHTTPHostScope(raw) {
   let host = String(raw || '').trim().toLowerCase().replace(/^https:\/\//, '').replace(/\/$/, '');
-  if (host.endsWith(':443')) host = host.slice(0, -4);
+  if (!host.startsWith('http://') && host.endsWith(':443')) host = host.slice(0, -4);
   return host;
 }
 
@@ -20,6 +20,8 @@ function openGitHTTPCredentials(options = {}) {
   if (previous?.open) return;
   const opener = document.activeElement;
   const endpoint = `/api/users/${encodeURIComponent(user.id)}/git-http-credentials`;
+  const plain = options.plain === true;
+  const matchesProtocol = cred => cred.host.startsWith('http://') === plain;
   let creds = [];
   let editing = null;
   let deleting = '';
@@ -31,16 +33,16 @@ function openGitHTTPCredentials(options = {}) {
   dialog.setAttribute('aria-labelledby', 'gitHTTPCredentialTitle');
   dialog.innerHTML = `
     <header class="git-ssh-dialog-head">
-      <h2 id="gitHTTPCredentialTitle">Git 访问令牌（按主机）</h2>
+      <h2 id="gitHTTPCredentialTitle">${plain?'Git HTTP 访问令牌':'Git HTTPS 访问令牌'}</h2>
       <button type="button" class="credential-btn ghost icon" data-http-cred-close aria-label="关闭">${credentialGlyph('close', 16)}</button>
     </header>
-    <p class="git-ssh-description">每个 HTTPS 主机配置一个个人访问令牌。平台与工作区访问该主机时，使用本轮责任人或发言人的凭据。</p>
+    <p class="git-ssh-description">${plain?'仅限管理员放行的主机和端口。令牌会通过明文 HTTP 连接传输。':'按 HTTPS 主机配置访问令牌。'}</p>
     <p class="git-ssh-status" role="status">正在读取凭据…</p>
     <div class="git-ssh-key-list"></div>
     <button type="button" class="credential-btn primary" data-http-cred-add disabled>添加令牌</button>
     <form class="git-ssh-key-form" hidden>
       <h3></h3>
-      ${credentialFieldHTML({label:'HTTPS 主机', name:'host', type:'text', placeholder:'github.com 或 gitlab.example.org:8443', hint:'只填主机名，可附带端口；令牌只提供给这台主机。'})}
+      ${credentialFieldHTML({label:'Git 主机', name:'host', type:'text', placeholder:plain?'http://git.example.org:8080':'github.com 或 gitlab.example.org:8443', hint:plain?'填写完整的 http://主机:端口。':'填写主机名，可附带端口。'})}
       <label class="credential-field">
         <span>平台</span>
         <div class="credential-input is-plain">
@@ -48,10 +50,10 @@ function openGitHTTPCredentials(options = {}) {
             ${GIT_HTTP_PLATFORMS.map(([value, label]) => `<option value="${value}">${escapeHTML(label)}</option>`).join('')}
           </select>
         </div>
-        <small id="gitHTTPCredentialPlatformHint">GitHub 和 GitLab 支持 gh / glab 认证和 PR/MR 合并状态同步。其他平台也可由 Agent 创建 PR/MR，合并状态请到托管平台查看。</small>
+        <small id="gitHTTPCredentialPlatformHint">${plain?'用于 Git 克隆、拉取和推送。':'GitHub 和 GitLab 支持 gh / glab 认证及 PR/MR 合并状态同步。'}</small>
       </label>
       ${credentialFieldHTML({label:'名称', name:'name', type:'text', placeholder:'例如 公司 GitLab', hint:null})}
-      ${credentialFieldHTML({label:'Git 认证用户名', name:'username', type:'text', placeholder:'x-access-token', hint:'按托管平台要求填写；这是 HTTPS 认证用户名，不是提交作者名，通常无法从 Token 推导。'})}
+      ${credentialFieldHTML({label:'Git 认证用户名', name:'username', type:'text', placeholder:'x-access-token', hint:'按托管平台要求填写；这是 Git 认证用户名，不是提交作者名，通常无法从 Token 推导。'})}
       ${credentialFieldHTML({label:'个人访问令牌', name:'token', placeholder:'粘贴个人访问令牌', hint:'保存后不再显示；编辑时留空保留现有令牌。'})}
       <footer class="git-ssh-form-actions">
         <button type="button" class="credential-btn secondary" data-http-cred-cancel>取消</button>
@@ -86,7 +88,7 @@ function openGitHTTPCredentials(options = {}) {
   function renderList() {
     list.innerHTML = creds.map(cred => {
       const id = escapeHTML(cred.id);
-      const verify = cred.platform !== 'other' || cred.managed ? `<button type="button" class="credential-btn ghost" data-http-cred-verify="${id}">校验令牌</button>` : '';
+      const verify = !plain && (cred.platform !== 'other' || cred.managed) ? `<button type="button" class="credential-btn ghost" data-http-cred-verify="${id}">校验令牌</button>` : '';
       const actions = cred.managed
         ? verify
         : deleting === cred.id
@@ -106,7 +108,7 @@ function openGitHTTPCredentials(options = {}) {
     form.querySelector('h3').textContent = cred ? '编辑令牌' : '添加令牌';
     host.value = cred?.host || '';
     host.readOnly = !!cred;
-    platform.value = cred?.platform || options.platform || 'github';
+    platform.value = cred?.platform || options.platform || (plain ? 'gitlab' : 'github');
     name.value = cred?.name || '';
     name.placeholder = '例如 公司 GitLab';
     username.value = cred?.username || '';
@@ -135,10 +137,11 @@ function openGitHTTPCredentials(options = {}) {
     setBusy(true);
     setStatus(method === 'PUT' ? '正在保存…' : '正在删除…');
     try {
-      creds = await api(id ? `${endpoint}/${encodeURIComponent(id)}` : endpoint, {
+      const all = await api(id ? `${endpoint}/${encodeURIComponent(id)}` : endpoint, {
         method, silent:true, ...(body ? {body:JSON.stringify(body)} : {}),
       });
-      storeCredentialUser({...credentialUser(), id:user.id, gitHttpCredentialsConfigured:creds.length > 0, gitHubCredentialConfigured:creds.some(credential=>credential.host==='github.com')});
+      creds = all.filter(matchesProtocol);
+      storeCredentialUser({...credentialUser(), id:user.id, gitHttpCredentialsConfigured:all.length > 0, gitHubCredentialConfigured:all.some(credential=>credential.host==='github.com')});
       renderCredentialGitGroup();
       notifyCredentialsChanged();
       deleting = '';
@@ -194,6 +197,11 @@ function openGitHTTPCredentials(options = {}) {
   platform.addEventListener('change', () => { username.placeholder = gitHTTPDefaultUsername(platform.value); });
   form.onsubmit = event => {
     event.preventDefault();
+    const scope = gitHTTPHostScope(host.value);
+    if (scope.startsWith('http://') !== plain) {
+      setStatus(plain ? '请填写 http://主机:端口' : '请在 Git HTTP 配置中添加该地址', true);
+      return;
+    }
     const body = {
       host:host.value, platform:platform.value, name:name.value.trim() || gitHTTPHostScope(host.value),
       username:username.value.trim() || gitHTTPDefaultUsername(platform.value),
@@ -216,7 +224,7 @@ function openGitHTTPCredentials(options = {}) {
   hydrateCredentialIcons(dialog);
   api(endpoint, {silent:true}).then(items => {
     if (!dialog.open) return;
-    creds = Array.isArray(items) ? items : [];
+    creds = Array.isArray(items) ? items.filter(matchesProtocol) : [];
     add.disabled = false;
     setStatus(creds.length ? '' : '还没有配置 Git 访问令牌');
     renderList();

@@ -376,6 +376,17 @@ func bindWorkspaceGitEnvironment(ctx context.Context, sandbox Sandbox, workspace
 	environment["GIT_CONFIG_KEY_1"] = "credential.helper"
 	environment["GIT_CONFIG_VALUE_1"] = "!" + shellSingleQuote(helper) + " git-credential"
 	environment[GitHostsEnv] = hosts
+	index := 2
+	for _, pair := range strings.Split(hosts, ",") {
+		scope, _, _ := strings.Cut(pair, "=")
+		if strings.HasPrefix(scope, "http://") {
+			suffix := strconv.Itoa(index)
+			environment["GIT_CONFIG_KEY_"+suffix] = "http." + scope + "/.followRedirects"
+			environment["GIT_CONFIG_VALUE_"+suffix] = "false"
+			index++
+		}
+	}
+	environment["GIT_CONFIG_COUNT"] = strconv.Itoa(index)
 	if sandboxDriver(sandbox) != "docker" {
 		base := environment["PATH"]
 		if base == "" {
@@ -387,11 +398,15 @@ func bindWorkspaceGitEnvironment(ctx context.Context, sandbox Sandbox, workspace
 }
 
 // workspaceGitHosts renders host→platform as the sorted "host=platform" list
-// of GitHostsEnv, skipping anything that is not a plain HTTPS host.
+// of GitHostsEnv, skipping invalid credential scopes.
 func workspaceGitHosts(hosts map[string]string) string {
 	pairs := make([]string, 0, len(hosts))
 	for host, platform := range hosts {
-		scope, err := gitwork.HTTPSHostScope(host)
+		protocol, authority := "https", host
+		if raw, plain := strings.CutPrefix(host, "http://"); plain {
+			protocol, authority = "http", raw
+		}
+		scope, err := gitwork.GitCredentialScope(protocol, authority)
 		if err != nil || scope != host {
 			continue
 		}

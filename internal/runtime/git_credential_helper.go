@@ -68,8 +68,14 @@ func gitCredentialMain(args []string, in io.Reader, out, errOut io.Writer) int {
 		return 2
 	}
 	attrs := readGitCredentialAttrs(in)
-	if args[0] != "get" || attrs["protocol"] != "https" || attrs["host"] == "" {
+	if args[0] != "get" || (attrs["protocol"] != "https" && attrs["protocol"] != "http") || attrs["host"] == "" {
 		return 0
+	}
+	if attrs["protocol"] == "http" {
+		scope, err := gitwork.GitCredentialScope("http", strings.ToLower(attrs["host"]))
+		if err != nil || !strings.Contains(","+os.Getenv(GitHostsEnv)+",", ","+scope+"=") {
+			return 0
+		}
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()

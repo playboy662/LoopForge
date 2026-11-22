@@ -98,7 +98,7 @@ func respondGitHTTPCredentialError(c *gin.Context, err error) {
 // gitHTTPCredentialFromInput validates the form. The platform defaults to
 // GitHub for github.com and "other" elsewhere.
 func (h *usersHandlers) gitHTTPCredentialFromInput(ctx context.Context, userID int64, input gitHTTPCredentialInput) (domain.GitHTTPCredentialSecret, error) {
-	host, err := gitwork.HTTPSHostScope(input.Host)
+	host, err := gitwork.ConfiguredGitCredentialScope(input.Host)
 	if err != nil {
 		return domain.GitHTTPCredentialSecret{}, err
 	}
@@ -152,6 +152,9 @@ func (h *usersHandlers) verifyGitHTTPCredential(c *gin.Context) {
 func verifyGitHTTPToken(ctx context.Context, cred domain.GitHTTPCredentialSecret) gitTokenVerifyResult {
 	if cred.Managed {
 		return verifyGongfengToken(ctx, cred.Token)
+	}
+	if strings.HasPrefix(cred.Host, "http://") {
+		return gitTokenVerifyResult{Error: "此凭据通过仓库 Git 操作验证"}
 	}
 	base := cred.APIBase()
 	if base == "" {

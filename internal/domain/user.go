@@ -113,6 +113,9 @@ func (c GitHTTPCredential) GitUsername() string {
 // APIBase is the REST API root the control plane uses for the credential's
 // host, or "" for platforms it does not call.
 func (c GitHTTPCredential) APIBase() string {
+	if strings.HasPrefix(c.Host, "http://") {
+		return ""
+	}
 	switch c.Platform {
 	case GitPlatformGitHub:
 		if c.Host == "github.com" {

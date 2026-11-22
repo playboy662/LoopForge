@@ -33,6 +33,7 @@ func TestGitCredentialHelperAsksTheSessionGateway(t *testing.T) {
 	}))
 	defer gateway.Close()
 	t.Setenv(SessionGatewayEnv, gateway.URL+"/internal/agent-tools/token/mcp")
+	t.Setenv(GitHostsEnv, "")
 
 	run := func(op, input string) (int, string, string) {
 		var out, errOut bytes.Buffer
@@ -62,6 +63,14 @@ func TestGitCredentialHelperAsksTheSessionGateway(t *testing.T) {
 	}
 	if len(asked) != before {
 		t.Fatal("plain HTTP, hostless, store and erase requests must not reach the gateway")
+	}
+
+	t.Setenv(GitHostsEnv, "http://gitlab.example.org:8443=gitlab")
+	if code, out, _ := run("get", "protocol=http\nhost=gitlab.example.org:8443\n\n"); code != 0 || !strings.Contains(out, "password=glpat-secret") {
+		t.Fatal("explicit HTTP scope did not reach the gateway")
+	}
+	if got := asked[len(asked)-1]["protocol"]; got != "http" {
+		t.Fatalf("HTTP credential request used protocol %q", got)
 	}
 
 	gateway.Close()

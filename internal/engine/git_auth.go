@@ -124,7 +124,7 @@ var (
 	gitAuthFailure    = regexp.MustCompile(`(?i)could not read Username|Authentication failed|HTTP Basic: Access denied|requested URL returned error: 40[13]|Invalid username or password`)
 )
 
-const gitTokenFixHint = "请责任人到「个人配置 → Git 访问令牌」为仓库的准确主机配置 HTTPS 令牌，并填写该平台要求的用户名、确认仓库权限，然后重试本节点"
+const gitTokenFixHint = "请责任人到「个人配置」按仓库的协议、准确主机和端口配置 Git 访问令牌，并确认认证用户名及仓库权限后重试本节点"
 
 // explainGitAuthFailure says what to fix when git rejects the clone or push.
 // SOP runs use the responsible user's Git Token, which git's own

@@ -5,6 +5,7 @@ import (
 	"net"
 	"net/netip"
 	"net/url"
+	"os"
 	"regexp"
 	"strconv"
 	"strings"
@@ -86,4 +87,44 @@ func HTTPSRemoteHost(remote string) (string, bool) {
 		return "", false
 	}
 	return host, true
+}
+
+// HTTPGitAllowlistEnv is the server-side opt-in for specific plaintext Git endpoints.
+const HTTPGitAllowlistEnv = "AGENTFLOW_GIT_HTTP_ALLOWED_HOSTS"
+
+// GitCredentialScope keeps plaintext credentials distinct from HTTPS credentials.
+func GitCredentialScope(protocol, authority string) (string, error) {
+	switch protocol {
+	case "https":
+		return HTTPSHostScope(authority)
+	case "http":
+		authority = strings.ToLower(authority)
+		host, port, err := net.SplitHostPort(authority)
+		number, portErr := strconv.Atoi(port)
+		ip, ipErr := netip.ParseAddr(host)
+		if err == nil && portErr == nil && number > 0 && number <= 65535 &&
+			strconv.Itoa(number) == port && (validHTTPSHostName(host) || ipErr == nil && ip.Is4()) {
+			return "http://" + authority, nil
+		}
+	}
+	return "", errors.New("HTTP Git 必须指定放行的主机和端口")
+}
+
+// ConfiguredGitCredentialScope is used when saving or loading credentials on the platform.
+func ConfiguredGitCredentialScope(raw string) (string, error) {
+	raw = strings.ToLower(strings.TrimSpace(raw))
+	authority, plain := strings.CutPrefix(strings.TrimSuffix(raw, "/"), "http://")
+	if !plain {
+		return HTTPSHostScope(raw)
+	}
+	scope, err := GitCredentialScope("http", authority)
+	if err != nil {
+		return "", err
+	}
+	for _, allowed := range strings.Split(os.Getenv(HTTPGitAllowlistEnv), ",") {
+		if authority == strings.ToLower(strings.TrimSpace(allowed)) {
+			return scope, nil
+		}
+	}
+	return "", errors.New("此 HTTP Git 主机和端口未经管理员放行")
 }

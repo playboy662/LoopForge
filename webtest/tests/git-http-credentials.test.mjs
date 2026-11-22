@@ -87,3 +87,31 @@ test('Git HTTPS credentials are managed per host with write-only tokens and veri
   assert.equal(app.document.querySelector('#gitHTTPCredentialDialog'), null);
   assert.equal(app.evaluate('state.currentUser.gitHttpCredentialsConfigured'), true);
 });
+
+test('Git HTTP has a separate settings entry and preserves the explicit port', async (t) => {
+  const app = await loadApp();
+  t.after(app.close);
+  const endpoint = '/api/users/1/git-http-credentials';
+  const secure = { id: 'secure', name: 'Secure Git', platform: 'gitlab', host: 'git.example.org' };
+  const plain = { id: 'plain', name: 'Plain Git', platform: 'gitlab', host: 'http://192.0.2.10:9433' };
+  app.router.get(endpoint, [secure, plain]);
+  app.evaluate(`
+    state.currentUser={...state.data.users[0],id:1,isGuest:false,gitHttpCredentialsConfigured:true};
+    state.data.users=[state.currentUser];
+    renderPersonalSettings();
+  `);
+  await settle(6);
+
+  const row = app.document.querySelector('[data-credential-row="gitPlainHttpCredentials"]');
+  assert.ok(row?.classList.contains('is-configured'));
+  row.querySelector('[data-credential-act="setup"]').click();
+  await settle(6);
+  const dialog = app.document.querySelector('#gitHTTPCredentialDialog');
+  assert.match(dialog.textContent, /Git HTTP 访问令牌/);
+  assert.match(dialog.textContent, /192\.0\.2\.10:9433/);
+  assert.doesNotMatch(dialog.textContent, /Secure Git/);
+  assert.equal(app.evaluate(`parseGongfengRepoURL('http://192.0.2.10:9433/team/code')?.cloneUrl`),
+    'http://192.0.2.10:9433/team/code');
+  assert.equal(app.evaluate(`parseGongfengRepoURL('http://git.example.com/team/code.git')`), null);
+  assert.equal(app.evaluate(`parseGongfengRepoURL('http://192.0.2.10:9433/team/../code.git')`), null);
+});

@@ -149,7 +149,9 @@ func (h *catalogHandlers) repositories(c *gin.Context) {
 	// One pasted repository reference (web / SSH / clone / git clone)
 	// An unknown HTTPS host is a Git transport, not an unknown hosting adapter.
 	_, knownHost := domain.ParseRepositoryURL(sshReference)
-	if v.Provider == domain.RepositoryProviderHTTPS || !knownHost && strings.HasPrefix(strings.TrimPrefix(sshReference, "git clone "), "https://") {
+	remoteReference := strings.ToLower(strings.TrimSpace(strings.TrimPrefix(sshReference, "git clone ")))
+	if v.Provider == domain.RepositoryProviderHTTPS || strings.HasPrefix(remoteReference, "http://") ||
+		strings.HasPrefix(strings.ToLower(v.CloneURL), "http://") || !knownHost && strings.HasPrefix(remoteReference, "https://") {
 		remote, name, err := gitwork.HTTPSRepositoryURL(sshReference)
 		if err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})

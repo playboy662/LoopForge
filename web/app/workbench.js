@@ -66,6 +66,8 @@ const CREDENTIAL_KINDS=[
     use:'SSH 密钥用于克隆和推送；创建 PR/MR 需要访问令牌',dialog:()=>openGitSSHKeys(),action:'管理密钥'},
   {key:'gitHttpCredentials',group:'platform',name:'Git HTTPS',short:'Git 访问令牌',icon:'lock',
     use:'按主机管理 HTTPS 访问令牌，工作区的 git、gh、glab 自动认证',dialog:()=>openGitHTTPCredentials(),action:'管理令牌'},
+  {key:'gitPlainHttpCredentials',group:'platform',name:'Git HTTP',short:'Git 访问令牌',icon:'lock',
+    use:'按管理员放行的主机和端口配置令牌，用于 Git 检出和推送',dialog:()=>openGitHTTPCredentials({plain:true}),action:'管理令牌'},
   {key:'codeBuddyApiKey',group:'model',name:'CodeBuddy',short:'CodeBuddy API Key',logo:'codebuddy',
     use:'AI 对话与 SOP 的 CodeBuddy 执行器',
     description:'AI 对话（含 Claude、GPT 等模型）和 SOP 的 CodeBuddy 执行器都使用它；网络环境按账号所在环境配置。',
@@ -718,6 +720,7 @@ const GIT_ADD_OPTIONS=[
   {id:'gitlab',name:'GitLab',logo:'gitlab',monochrome:true},
   {id:'github',name:'GitHub Enterprise',logo:'github',monochrome:true},
   {id:'other',name:'其他 Git',icon:'globe'},
+  {id:'gitPlainHttpCredentials',name:'Git HTTP',icon:'lock'},
   {id:'gitSshKey',name:'Git SSH',icon:'key'},
 ];
 function credentialOptionHTML({id,name,logo,monochrome,icon},selected){
@@ -746,7 +749,7 @@ function credentialGroupHTML(group,user){
       ${git?`<p class="credential-group-note"${scope?'':' hidden'}>按仓库地址的协议、主机和端口匹配</p>`:''}
     </header>
     <div class="credential-group-body">
-      <div class="credential-rows">${kinds.map(kind=>credentialRowHTML(kind,user)).join('')}${git?'<div data-credential-git-rows></div>':''}</div>
+      <div class="credential-rows">${kinds.map(kind=>credentialRowHTML(kind,user)).join('')}${git?'<div data-credential-git-rows></div><div data-credential-plain-http></div>':''}</div>
       ${credentialAddMenu(group,user)}
       ${git?'':`<a class="credential-row-main credential-subscription" href="#/runners" aria-labelledby="credentialSubscriptionTitle credentialSubscriptionAction" aria-describedby="credentialSubscriptionHelp">
         ${credentialLogo({icon:'monitor'})}
@@ -770,7 +773,7 @@ function credentialGitRowsHTML(http,ssh,showGitHub){
   return [...http.filter(item=>item.host!=='github.com'||!showGitHub).map(item=>({...item,kind:'http'})),...ssh.map(item=>({...item,kind:'ssh'}))].map(item=>{
     const isSSH=item.kind==='ssh';
     const platform=GIT_ADD_OPTIONS.find(type=>type.id===(isSSH?'gitSshKey':item.platform))||GIT_ADD_OPTIONS.find(type=>type.id==='other');
-    const endpoint=`${isSSH?'ssh':'https'}://${item.host}`;
+    const endpoint=item.host.startsWith('http://')?item.host:`${isSSH?'ssh':'https'}://${item.host}`;
     return `<div class="credential-row"><div class="credential-row-main">
       ${credentialLogo(platform)}<div class="credential-row-who"><b>${escapeHTML(item.name)}</b><small><span>${platform.name} · ${escapeHTML(endpoint)}</span></small></div>
       <div class="credential-row-end"><button type="button" class="credential-btn ghost credential-row-link" aria-haspopup="dialog" data-credential-git-kind="${item.kind}" data-credential-git-id="${escapeHTML(item.id)}">${item.managed?'查看':'编辑'}${credentialGlyph('chevron-right',14)}</button></div>
@@ -785,7 +788,10 @@ async function loadCredentialGitRows(panel,user){
   const [httpRows,sshRows]=await Promise.allSettled([http,ssh]);
   if(!host.isConnected||state.currentUser?.id!==user.id)return;
   const listed=entry=>entry.status==='fulfilled'&&Array.isArray(entry.value)?entry.value:[];
-  host.innerHTML=credentialGitRowsHTML(listed(httpRows),listed(sshRows),user.gitHubCredentialConfigured);
+  const credentials=listed(httpRows),plain=credentials.filter(item=>item.host.startsWith('http://'));
+  host.innerHTML=credentialGitRowsHTML(credentials.filter(item=>!item.host.startsWith('http://')),listed(sshRows),user.gitHubCredentialConfigured);
+  const plainRow=panel.querySelector('[data-credential-plain-http]');
+  if(plainRow)plainRow.innerHTML=credentialRowHTML(CREDENTIAL_KINDS.find(kind=>kind.key==='gitPlainHttpCredentials'),{...user,gitPlainHttpCredentialsConfigured:plain.length>0});
   const note=panel.querySelector('[data-credential-group="platform"] .credential-group-note');
   if(note)note.hidden=!user.gitHubCredentialConfigured&&!host.firstElementChild;
   hydrateCredentialIcons(host);
@@ -1209,6 +1215,7 @@ function bindCredentialPanel(panel){
       select.focus();
       if(select.dataset.credentialAddMenu==='model'||key==='gitToken')openCredentialWizard(key);
       else if(key==='gitSshKey')openGitSSHKeys('',{add:true});
+      else if(key==='gitPlainHttpCredentials')openGitHTTPCredentials({plain:true,add:true});
       else if(key)openGitHTTPCredentials({platform:key,add:true});
       return;
     }

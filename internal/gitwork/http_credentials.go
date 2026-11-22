@@ -42,10 +42,10 @@ func httpCredentialForCommand(ctx context.Context, args []string) (HTTPCredentia
 		}
 	}
 	u, err := url.Parse(remote)
-	if err != nil || u.Scheme != "https" {
+	if err != nil {
 		return HTTPCredential{}, "", true
 	}
-	host, err := HTTPSHostScope(u.Host)
+	host, err := GitCredentialScope(u.Scheme, u.Host)
 	if err != nil {
 		return HTTPCredential{}, "", true
 	}
@@ -61,7 +61,7 @@ const gitHTTPHostEnv = "AGENTFLOW_GIT_HTTP_HOST"
 // scopedCredentialHelper accepts Git's protocol, rather than returning a
 // password to every host a redirect, submodule or checkout might request.
 func scopedCredentialHelper() string {
-	return `!f() { test "$1" = get || exit 0; protocol= host=; while IFS= read -r line && test -n "$line"; do case "$line" in protocol=*) protocol=${line#protocol=} ;; host=*) host=${line#host=} ;; esac; done; host=$(printf '%s' "$host" | tr '[:upper:]' '[:lower:]'); host=${host%:443}; test "$protocol" = https && test "$host" = "$` + gitHTTPHostEnv + `" || exit 0; printf 'username=%s\npassword=%s\n' "$` + gitHTTPUserEnv + `" "$` + gitHTTPPassEnv + `"; }; f`
+	return `!f() { test "$1" = get || exit 0; protocol= host=; while IFS= read -r line && test -n "$line"; do case "$line" in protocol=*) protocol=${line#protocol=} ;; host=*) host=${line#host=} ;; esac; done; host=$(printf '%s' "$host" | tr '[:upper:]' '[:lower:]'); case "$protocol" in https) host=${host%:443} ;; http) host=http://$host ;; *) exit 0 ;; esac; test "$host" = "$` + gitHTTPHostEnv + `" || exit 0; printf 'username=%s\npassword=%s\n' "$` + gitHTTPUserEnv + `" "$` + gitHTTPPassEnv + `"; }; f`
 }
 
 func scopedHTTPAuthArgs(credential HTTPCredential) []string {
