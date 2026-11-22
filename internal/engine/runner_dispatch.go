@@ -521,6 +521,11 @@ func (e *Engine) validateExecutionReconnect(run domain.Run, nodeID string) error
 		if node.ID != nodeID {
 			continue
 		}
+		if node.Type == "sop" {
+			// SOP nodes only orchestrate child runs; each child's dispatch
+			// validates its own agent and execution provider.
+			return nil
+		}
 		provider := "terminal"
 		if node.Type != "script" && node.Type != "command" && node.Type != "approval" {
 			agent, found := e.repo.Agent(node.AgentID)

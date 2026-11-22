@@ -243,3 +243,78 @@ func TestRetryFailsBeforeMutationWhenFrozenRunnerIsOffline(t *testing.T) {
 		t.Fatalf("failed reconnect mutated run: %+v", current)
 	}
 }
+
+func TestRetryReconnectDistinguishesSOPFromAgent(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name     string
+		nodeType string
+		recover  bool
+		wantErr  string
+	}{
+		{name: "retry SOP without an agent or terminal provider", nodeType: "sop"},
+		{name: "recover parent with its existing child", nodeType: "sop", recover: true},
+		{name: "reject missing agent before mutation", nodeType: "agent", wantErr: "agent missing 不存在"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s, err := repo.OpenTest()
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer s.Close()
+			runner := domain.Runner{
+				ID: "runner-online", Status: domain.RunnerStatusOnline,
+				Runtimes: []domain.RunnerRuntime{{Provider: "codex", Status: domain.RuntimeStatusOnline}},
+			}
+			if err := s.PutRunner(runner); err != nil {
+				t.Fatal(err)
+			}
+			node := domain.WorkflowNode{ID: "work", Type: tc.nodeType, SOPWorkflowID: "child-workflow", MaxAttempts: 1}
+			if tc.nodeType == "agent" {
+				node.AgentID = "missing"
+			}
+			run := domain.Run{
+				ID: "run-reconnect", WorkflowID: "parent-workflow", Status: "failed",
+				WorkflowSnapshot: domain.WorkflowDefinition{ID: "parent-workflow", Nodes: []domain.WorkflowNode{node}},
+				ExecutionContext: domain.TelemetryContext{ExecutionMode: domain.ExecutionModeRunner, ExecutionRunnerID: runner.ID},
+				Nodes:            map[string]*domain.NodeRun{"work": {NodeID: "work", Status: "failed", Attempt: 1, Error: "child failed", ChildRunID: "child-run"}},
+			}
+			if err := s.PutRun(run); err != nil {
+				t.Fatal(err)
+			}
+			e := New(s, runtime.NewManager(t.TempDir()))
+			e.ConfigureExecution("", "", 0, false)
+			if tc.recover {
+				child := domain.Run{
+					ID: "child-run", WorkflowID: node.SOPWorkflowID, Status: "succeeded",
+					ExecutionContext: domain.TelemetryContext{ParentRunID: run.ID, ParentNodeID: node.ID},
+				}
+				if err := s.PutRun(child); err != nil {
+					t.Fatal(err)
+				}
+				e.resumeParentAfterChildRecovery(child.ID)
+			} else {
+				err = e.Retry(run.ID, node.ID, "retry", "")
+			}
+			current, _ := s.RunState(run.ID)
+			if tc.wantErr != "" {
+				if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
+					t.Fatalf("retry error = %v, want %q", err, tc.wantErr)
+				}
+				if current.Status != "failed" || current.Nodes[node.ID].Status != "failed" || current.Nodes[node.ID].Attempt != 1 {
+					t.Fatalf("failed reconnect mutated run: %+v", current)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if current.Status != "running" || current.Nodes[node.ID].Status != "pending" {
+				t.Fatalf("SOP was not resumed: %+v", current)
+			}
+			if tc.recover && current.Nodes[node.ID].ChildRunID != "child-run" {
+				t.Fatalf("recovery replaced the existing child: %+v", current.Nodes[node.ID])
+			}
+		})
+	}
+}
