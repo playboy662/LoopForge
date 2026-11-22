@@ -96,7 +96,18 @@ func (h *runsHandlers) startRunEval(c *gin.Context) {
 	}
 	user, ok := h.repo.User(current.ID)
 	if !ok {
-		c.JSON(http.StatusUnauthorized, map[string]string{"error": "请先登录后评测"})
+		c.JSON(http.StatusBadRequest, map[string]string{"error": "当前用户不可用"})
+		return
+	}
+	var req struct {
+		Model string `json:"model"`
+	}
+	if c.Request.ContentLength != 0 && !decode(c, &req) {
+		return
+	}
+	model, err := resolveFeatureModel(user, req.Model)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
 	if rec, busy := h.repo.ActiveRunEval(id); busy {
@@ -110,17 +121,6 @@ func (h *runsHandlers) startRunEval(c *gin.Context) {
 		}
 		// The row was saved as running, then startup failed before a job existed.
 		h.failRunEval(rec, "上次评测没有真正启动")
-	}
-	var req struct {
-		Model string `json:"model"`
-	}
-	if c.Request.ContentLength > 0 && !decode(c, &req) {
-		return
-	}
-	model, err := configuredAnalysisModel(req.Model, user)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
-		return
 	}
 	project, _ := h.repo.Project(run.ExecutionContext.ProjectID)
 	rec := domain.RunEvalRecord{

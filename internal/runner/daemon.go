@@ -547,6 +547,7 @@ func (d *Daemon) executeTask(ctx context.Context, task domain.RunnerTask) {
 	ctx, stopLease := d.keepTaskLease(ctx, task, leaseRenewInterval)
 	defer stopLease()
 	ctx = d.withDockerRunnerHelperWait(ctx)
+	ctx = gitwork.WithSSHKnownHosts(ctx, task.GitSSHKnownHosts)
 	// The read fence ends before the completion report: once the control plane
 	// sees this task terminal (and lets a paused run continue), a follow-up
 	// preparation or snapshot must not still find the gate held.
@@ -788,7 +789,7 @@ func (d *Daemon) executeTerminal(ctx context.Context, task domain.RunnerTask) ex
 			return execResult{status: domain.RunnerTaskFailed, errMsg: fmt.Sprintf("prepare git credentials: %v", err)}
 		}
 		defer closeGit()
-		cleanup, err := runtime.BindGitSSH(sandbox, workspace, gitEnv, task.Invocation.GitSSHKeys)
+		cleanup, err := runtime.BindGitSSH(ctx, sandbox, workspace, gitEnv, task.Invocation.GitSSHKeys)
 		if err != nil {
 			return execResult{status: domain.RunnerTaskFailed, errMsg: fmt.Sprintf("prepare git credentials: %v", err)}
 		}
@@ -963,7 +964,7 @@ func (d *Daemon) executeInvocation(ctx context.Context, task domain.RunnerTask) 
 			return execResult{status: domain.RunnerTaskFailed, errMsg: fmt.Sprintf("prepare git credentials: %v", gitErr)}, nil
 		}
 		defer closeGit()
-		cleanup, gitErr := runtime.BindGitSSH(sandbox, workspace, gitEnv, inv.GitSSHKeys)
+		cleanup, gitErr := runtime.BindGitSSH(ctx, sandbox, workspace, gitEnv, inv.GitSSHKeys)
 		if gitErr != nil {
 			return execResult{status: domain.RunnerTaskFailed, errMsg: fmt.Sprintf("prepare git credentials: %v", gitErr)}, nil
 		}
@@ -1125,6 +1126,7 @@ func bindInvocationCredentials(inv *domain.RunnerInvocation, bindings []runtime.
 				return nil, nil, errors.New("CodeBuddy 个人 API Key 未配置")
 			}
 			env["CODEBUDDY_API_KEY"] = key
+			env["CODEBUDDY_BASE_URL"] = strings.TrimSpace(inv.CodeBuddyBaseURL)
 			if net := strings.TrimSpace(inv.CodeBuddyInternetEnvironment); net != "" {
 				env["CODEBUDDY_INTERNET_ENVIRONMENT"] = net
 			}
@@ -1446,7 +1448,7 @@ func (d *Daemon) defaultWorkspace(taskID string) string {
 }
 
 // runnerVersion is reported at registration; it matches the module build.
-var runnerVersion = domain.RunnerVersionGitHTTP
+var runnerVersion = domain.RunnerVersionCodeBuddyBaseURL
 
 // Version returns the runner build version reported at registration.
 func Version() string { return runnerVersion }

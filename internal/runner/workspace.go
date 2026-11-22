@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"net"
 	"net/http"
 	"os"
 	"os/exec"
@@ -121,11 +122,20 @@ func (d *Daemon) readRunnerWorkspace(ctx context.Context, request domain.RunnerW
 		return domain.RunnerWorkspaceResponse{Status: http.StatusConflict, Error: "Runner 即将重启，请稍后重试"}
 	}
 	ctx = d.withDockerRunnerHelperWait(ctx)
-	if request.Operation == "conversation_process" {
+	ctx = gitwork.WithSSHKnownHosts(ctx, request.GitSSHKnownHosts)
+	if request.Operation == domain.RunnerWorkspaceOperationConversationCLI {
 		return d.conversationProcess(ctx, request)
 	}
 	if request.Operation == domain.RunnerWorkspaceOperationLoginModels {
 		return d.runnerLoginModels(ctx, request.ModelProvider)
+	}
+	if request.Operation == domain.RunnerWorkspaceOperationSSHHostKeyProbe {
+		dialer := &net.Dialer{}
+		key, err := gitwork.ProbeSSHHostPublicKey(ctx, request.SSHHostKeyAddress, dialer.DialContext)
+		if err != nil {
+			return domain.RunnerWorkspaceResponse{Status: http.StatusBadGateway, Error: err.Error()}
+		}
+		return runnerWorkspacePayload(key)
 	}
 	if request.Operation == domain.RunnerWorkspaceOperationBrowser {
 		return d.handleRunnerWorkspaceBrowser(ctx, request)

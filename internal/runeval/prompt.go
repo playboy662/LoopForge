@@ -14,7 +14,7 @@ func BuildPrompt(policy domain.RunEvalPolicy, facts domain.RunEvalFacts) (system
 	var b strings.Builder
 	b.WriteString("你是 AgentFlow 的 SOP Run 评测员。根据提供的结构化 facts 和压缩 trace digest，按平台规则给这次 run 打分，并给出可落地的改进建议。\n")
 	b.WriteString("只输出一个 JSON 对象，不要 Markdown。字段：\n")
-	b.WriteString(`{"score":0,"dimensions":{`)
+	b.WriteString(`{"dimensions":{`)
 	for i, dim := range policy.Dimensions {
 		if i > 0 {
 			b.WriteString(",")

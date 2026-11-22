@@ -13,9 +13,9 @@ function source(name) {
 const pane = {innerHTML: ''};
 const ctx = {
   state: {runEvalThoughts: [], runEvalBusy: true},
+  window: {AgentFlowAssistantModels: {featurePickerHTML: () => ''}},
   escapeHTML: value => String(value).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'),
   $: () => ({querySelector: () => pane}),
-  runEvalModel: () => 'codex:custom-model',
   EventSource: class {
     constructor() { this.listeners = {}; }
     addEventListener(name, listener) { this.listeners[name] = listener; }
