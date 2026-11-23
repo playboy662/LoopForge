@@ -1,0 +1,38 @@
+name: Sync official branch
+
+on:
+  schedule:
+    - cron: '2-59/5 * * * *'
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: sync-official
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    if: github.repository == 'playboy662/LoopForge' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Fast-forward official from Tencent
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.UPSTREAM_SYNC_TOKEN }}
+          GIT_TERMINAL_PROMPT: '0'
+        run: |
+          : "${GH_TOKEN:?Set the UPSTREAM_SYNC_TOKEN Actions secret}"
+          cd "$(mktemp -d)"
+          git init --quiet
+          git fetch --no-tags https://github.com/Tencent/LoopForge.git \
+            refs/heads/main:refs/remotes/upstream/main
+          git fetch --no-tags https://github.com/playboy662/LoopForge.git \
+            refs/heads/official:refs/remotes/origin/official
+          if ! git merge-base --is-ancestor refs/remotes/origin/official refs/remotes/upstream/main; then
+            echo '::error::The official branch is no longer an ancestor of Tencent main. Inspect both branches before resuming sync.'
+            exit 1
+          fi
+          git -c credential.helper= -c 'credential.helper=!gh auth git-credential' \
+            push https://github.com/playboy662/LoopForge.git refs/remotes/upstream/main:refs/heads/official
