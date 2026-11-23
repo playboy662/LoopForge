@@ -2,6 +2,24 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { loadApp } from '../lib/load-app.mjs';
 
+test('HTML artifacts open interactive previews with an optional source view', async (t) => {
+  const app = await loadApp();
+  t.after(app.close);
+  const url = '/api/runs/run-html/artifacts/prototype';
+  app.router.get(url, '<button onclick="this.textContent=\'Opened\'">Open</button>');
+  await app.evaluate(`previewArtifact({id:'run-html',artifacts:[
+    {id:'prototype',name:'原型',path:'prototype/index.html',mediaType:'text/markdown'}
+  ]},'prototype')`);
+  const preview = app.document.querySelector('#artifactPreview');
+  const frame = preview.querySelector('iframe');
+  assert.equal(frame.getAttribute('src'), url+'?preview=1');
+  assert.equal(frame.getAttribute('sandbox'), 'allow-scripts allow-forms');
+  assert.equal(app.document.querySelector('#artifactPreviewHeading a').getAttribute('href'), url+'?preview=1');
+  preview.querySelector('[data-mode="source"]').click();
+  assert.match(preview.querySelector('.artifact-content').textContent, /onclick=/);
+  assert.equal(preview.querySelector('iframe'), null);
+});
+
 test('run helpers merge streams and format timing, output, logs, telemetry, preview, and workspace states', async (t) => {
   const app = await loadApp();
   t.after(app.close);

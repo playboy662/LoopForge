@@ -41,6 +41,12 @@ func (e *Engine) jenkinsTarget(ec domain.TelemetryContext, node domain.WorkflowN
 	if err != nil {
 		return binding, repo.JenkinsConnection{}, errors.New("当前项目的 Jenkins Job 绑定不可用")
 	}
+	if binding.RepositoryID != "" {
+		repository, found := e.repo.Repository(binding.RepositoryID)
+		if !found || repository.ProjectID != ec.ProjectID {
+			return binding, repo.JenkinsConnection{}, errors.New("Jenkins Job 绑定关联的代码仓库已不属于当前项目")
+		}
+	}
 	controller, err := e.repo.JenkinsController(binding.ConnectionID)
 	if err != nil || !controller.AllowsProject(ec.ProjectID) {
 		return binding, controller, errors.New("当前项目未获该 Jenkins 连接授权")

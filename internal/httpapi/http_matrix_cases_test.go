@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"agentflow/internal/domain"
@@ -68,6 +69,41 @@ func cvBRequest(t *testing.T, f cvBHTTPFixture, method, path string, body any, a
 	rec := httptest.NewRecorder()
 	f.h.ServeHTTP(rec, req)
 	return rec
+}
+
+func TestRunHTMLArtifactPreview(t *testing.T) {
+	t.Setenv("AGENTFLOW_AUTH_REQUIRED", "true")
+	f := cvBNewHTTPFixture(t)
+	html := "<!doctype html><button onclick=\"this.textContent='Clicked'\">Open</button>"
+	run := domain.Run{ID: "html-preview", Status: "succeeded", ExecutionContext: domain.TelemetryContext{ProjectID: "platform", ResponsibleUserID: f.user.ID}, Artifacts: []domain.Artifact{
+		{ID: "html", Name: "prototype", Path: "prototype.html", MediaType: "text/markdown", Content: html},
+		{ID: "notes", Name: "notes", Path: "notes.md", MediaType: "text/markdown", Content: "notes"},
+	}}
+	if err := f.s.PutRun(run); err != nil {
+		t.Fatal(err)
+	}
+	path := "/api/runs/" + run.ID + "/artifacts/html"
+	auth := cvBRequest(t, f, http.MethodGet, path+"?preview=1", nil, false)
+	if auth.Code != http.StatusUnauthorized {
+		t.Fatalf("anonymous preview = %d", auth.Code)
+	}
+	raw := cvBRequest(t, f, http.MethodGet, path, nil, true)
+	if raw.Code != http.StatusOK || raw.Body.String() != html || raw.Header().Get("Content-Type") != "text/markdown; charset=utf-8" {
+		t.Fatalf("source response = %d %v", raw.Code, raw.Header())
+	}
+	preview := cvBRequest(t, f, http.MethodGet, path+"?preview=1", nil, true)
+	csp := preview.Header().Get("Content-Security-Policy")
+	if preview.Code != http.StatusOK || preview.Body.String() != html ||
+		preview.Header().Get("Content-Type") != "text/html; charset=utf-8" ||
+		preview.Header().Get("X-Frame-Options") != "SAMEORIGIN" ||
+		!strings.Contains(csp, "sandbox allow-scripts") || strings.Contains(csp, "allow-same-origin") ||
+		!strings.Contains(csp, "default-src 'none'") || !strings.Contains(csp, "form-action 'none'") {
+		t.Fatalf("preview response = %d %v", preview.Code, preview.Header())
+	}
+	notes := cvBRequest(t, f, http.MethodGet, "/api/runs/"+run.ID+"/artifacts/notes?preview=1", nil, true)
+	if notes.Code != http.StatusUnsupportedMediaType {
+		t.Fatalf("non-HTML preview = %d", notes.Code)
+	}
 }
 
 func TestProjectBusinessAndNotificationHTTP(t *testing.T) {

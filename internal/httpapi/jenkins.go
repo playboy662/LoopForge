@@ -161,12 +161,18 @@ func (h *jenkinsHandlers) bindings(c *gin.Context) {
 			return
 		}
 		item.ProjectID = projectID
+		item.RepositoryID = strings.TrimSpace(item.RepositoryID)
 		item.Service, item.Environment = strings.TrimSpace(item.Service), strings.TrimSpace(item.Environment)
 		item.Parameter = strings.TrimSpace(item.Parameter)
-		if !jenkinsKey.MatchString(item.ID) || item.Service == "" || len([]rune(item.Service)) > 120 ||
+		if !jenkinsKey.MatchString(item.ID) || len([]rune(item.Service)) > 120 ||
 			item.Environment == "" || len([]rune(item.Environment)) > 80 || len([]rune(item.Job)) > 500 ||
 			(item.Parameter != "" && !jenkinsKey.MatchString(item.Parameter)) || len([]rune(item.Value)) > 240 {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "请填写有效的绑定标识、服务、环境、Job 和可选参数"})
+			c.JSON(http.StatusBadRequest, gin.H{"error": "请填写有效的绑定标识、环境、Job 和可选参数"})
+			return
+		}
+		repository, found := h.repo.Repository(item.RepositoryID)
+		if item.RepositoryID == "" || !found || repository.ProjectID != projectID {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "请选择当前项目的代码仓库"})
 			return
 		}
 		client, ok := h.authorizedJenkins(c, item.ConnectionID)
@@ -218,12 +224,31 @@ func (h *jenkinsHandlers) bindings(c *gin.Context) {
 		respond(c, err)
 		return
 	}
-	allowed := make(map[string]bool, len(connections))
+	allowed := make(map[string]string, len(connections))
 	for _, item := range connections {
-		allowed[item.ID] = item.AllowsProject(projectID) && jenkins.ValidateURL(item.URL) == nil
+		if item.AllowsProject(projectID) && jenkins.ValidateURL(item.URL) == nil {
+			allowed[item.ID] = item.Name
+		}
 	}
-	for i := range items {
-		items[i].Unavailable = !allowed[items[i].ConnectionID]
+	type bindingOption struct {
+		repo.JenkinsBinding
+		RepositoryName string `json:"repositoryName,omitempty"`
+		ConnectionName string `json:"connectionName,omitempty"`
 	}
-	c.JSON(http.StatusOK, items)
+	out := make([]bindingOption, 0, len(items))
+	for _, item := range items {
+		connectionName, available := allowed[item.ConnectionID]
+		option := bindingOption{JenkinsBinding: item, ConnectionName: connectionName}
+		option.Unavailable = !available
+		if item.RepositoryID != "" {
+			repository, found := h.repo.Repository(item.RepositoryID)
+			if found && repository.ProjectID == projectID {
+				option.RepositoryName = repository.Name
+			} else {
+				option.Unavailable = true
+			}
+		}
+		out = append(out, option)
+	}
+	c.JSON(http.StatusOK, out)
 }

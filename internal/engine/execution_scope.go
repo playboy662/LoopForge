@@ -106,6 +106,20 @@ func bindExecutionTarget(command string, target executionTarget) string {
 	return b.String()
 }
 
+// bindScriptRequirement exposes the platform requirement key independently of Git branch naming.
+func (e *Engine) bindScriptRequirement(run domain.Run, command string) string {
+	context := run.ExecutionContext
+	if context.IssueID == "" || context.IssueNumber <= 0 {
+		return command
+	}
+	project, ok := e.repo.Project(context.ProjectID)
+	if !ok || strings.TrimSpace(project.Key) == "" {
+		return command
+	}
+	key := fmt.Sprintf("%s-%d", strings.ToUpper(strings.TrimSpace(project.Key)), context.IssueNumber)
+	return "export AGENTFLOW_REQUIREMENT_KEY=" + shellSingleQuote(key) + "\n" + command
+}
+
 func writableWorkBranch(repository domain.RepositoryContext) string {
 	if repository.ReadOnly {
 		return ""

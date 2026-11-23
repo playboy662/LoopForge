@@ -12,6 +12,7 @@ CREATE TABLE IF NOT EXISTS jenkins_connections (
 CREATE TABLE IF NOT EXISTS jenkins_bindings (
     project_id VARCHAR(100) NOT NULL COMMENT '所属项目',
     id VARCHAR(80) NOT NULL COMMENT '项目内绑定标识',
+    repository_id VARCHAR(100) NOT NULL DEFAULT '' COMMENT '代码仓库标识',
     connection_id VARCHAR(80) NOT NULL DEFAULT '' COMMENT '连接标识',
     service VARCHAR(120) NOT NULL DEFAULT '' COMMENT '服务名称',
     environment VARCHAR(80) NOT NULL DEFAULT '' COMMENT '部署环境',

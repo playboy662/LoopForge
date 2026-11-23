@@ -3,6 +3,7 @@ package httpapi
 import (
 	"fmt"
 	"net/http"
+	"path"
 	"strconv"
 	"strings"
 	"time"
@@ -264,8 +265,21 @@ func (h *runsHandlers) run(c *gin.Context) {
 			c.JSON(404, map[string]string{"error": "artifact not found"})
 			return
 		}
-		c.Header("Content-Type", artifact.MediaType+"; charset=utf-8")
-		c.Header("Content-Disposition", fmt.Sprintf("inline; filename=%q", artifact.Name+artifactExtension(artifact.MediaType)))
+		mediaType := artifact.MediaType
+		if c.Query("preview") == "1" {
+			ext := strings.ToLower(path.Ext(artifact.Path))
+			if mediaType != "text/html" && ext != ".html" && ext != ".htm" {
+				c.JSON(http.StatusUnsupportedMediaType, gin.H{"error": "此交付物不是 HTML"})
+				return
+			}
+			mediaType = "text/html"
+			c.Header("Content-Security-Policy", "sandbox allow-scripts allow-forms; default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: blob:; font-src data:; base-uri 'none'; form-action 'none'; frame-ancestors 'self'")
+			c.Header("X-Frame-Options", "SAMEORIGIN")
+			c.Header("Referrer-Policy", "no-referrer")
+			c.Header("Cache-Control", "private, no-store")
+		}
+		c.Header("Content-Type", mediaType+"; charset=utf-8")
+		c.Header("Content-Disposition", fmt.Sprintf("inline; filename=%q", artifact.Name+artifactExtension(mediaType)))
 		c.Header("ETag", `"`+artifact.SHA256+`"`)
 		_, _ = c.Writer.Write([]byte(artifact.Content))
 	case "/api/runs/:id/approve":
@@ -333,6 +347,9 @@ func (h *runsHandlers) run(c *gin.Context) {
 }
 
 func artifactExtension(mediaType string) string {
+	if mediaType == "text/html" {
+		return ".html"
+	}
 	if mediaType == "text/markdown" {
 		return ".md"
 	}

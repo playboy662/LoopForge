@@ -1565,24 +1565,26 @@ async function previewArtifact(run,artifactId,opener){
   if(!artifact)return;
   const host=$('#artifactPreview');
   const url=`/api/runs/${encodeURIComponent(run.id)}/artifacts/${encodeURIComponent(artifactId)}`;
+  const isHTML=artifact.mediaType==='text/html'||/\.html?$/i.test(artifact.path||'');
+  const previewUrl=isHTML?url+'?preview=1':url;
   const signal=openArtifactPreview({
-    title:artifact.name,icon:isMarkdownArtifact(artifact)?'MD':'{}',details:[artifact.path,`attempt ${artifact.attempt}`],
-    url,action:'在新窗口打开 ↗',loading:'正在加载交付物…',opener,
+    title:artifact.name,icon:isHTML?'HTML':isMarkdownArtifact(artifact)?'MD':'{}',details:[artifact.path,`attempt ${artifact.attempt}`],
+    url:previewUrl,action:'在新窗口打开 ↗',loading:'正在加载交付物…',opener,
   });
   try{
     const res=await fetch(url,{signal});
     if(!res.ok)throw new Error(`HTTP ${res.status}`);
     const content=await res.text();
     if(signal.aborted)return;
-    const isMd=isMarkdownArtifact(artifact, content);
-    $('#artifactPreviewHeading .artifact-preview-icon').textContent=isMd?'MD':'{}';
-    let viewMode=isMd?'preview':'source';
+    const isMd=!isHTML&&isMarkdownArtifact(artifact, content);
+    $('#artifactPreviewHeading .artifact-preview-icon').textContent=isHTML?'HTML':isMd?'MD':'{}';
+    let viewMode=isHTML||isMd?'preview':'source';
 
     function renderModal(){
       host.innerHTML=`
         <div class="artifact-preview-toolbar">
           <div class="artifact-toolbar-left">
-            ${isMd ? `
+            ${isHTML||isMd ? `
               <div class="artifact-view-mode">
                 <button type="button" class="artifact-mode-btn ${viewMode==='preview'?'active':''}" data-mode="preview">📖 渲染预览</button>
                 <button type="button" class="artifact-mode-btn ${viewMode==='source'?'active':''}" data-mode="source">📄 源码</button>
@@ -1598,8 +1600,8 @@ async function previewArtifact(run,artifactId,opener){
             <button type="button" class="button ghost small" data-download-artifact>⬇ 下载文件</button>
           </div>
         </div>
-        <div class="artifact-body">
-          ${viewMode==='preview' ? `<div class="markdown-body">${renderMarkdown(content)}</div>` : `<pre class="artifact-content">${escapeHTML(content)}</pre>`}
+        <div class="artifact-body${isHTML&&viewMode==='preview'?' artifact-body-html':''}">
+          ${viewMode==='preview'&&isHTML ? `<iframe src="${escapeHTML(previewUrl)}" title="${escapeHTML(artifact.name)}" sandbox="allow-scripts allow-forms" referrerpolicy="no-referrer"></iframe>` : viewMode==='preview' ? `<div class="markdown-body">${renderMarkdown(content)}</div>` : `<pre class="artifact-content">${escapeHTML(content)}</pre>`}
         </div>
       `;
 
@@ -1614,11 +1616,11 @@ async function previewArtifact(run,artifactId,opener){
       host.querySelector('[data-copy-artifact]').onclick=()=>copyText(content, '产物内容已复制到剪贴板');
 
       host.querySelector('[data-download-artifact]').onclick=()=>{
-        const blob=new Blob([content], {type: artifact.mediaType || 'text/plain'});
+        const blob=new Blob([content], {type: isHTML?'text/html':artifact.mediaType || 'text/plain'});
         const url=URL.createObjectURL(blob);
         const a=document.createElement('a');
         a.href=url;
-        a.download=artifact.name || 'artifact.txt';
+        a.download=isHTML?String(artifact.path||'prototype.html').split('/').pop():artifact.name || 'artifact.txt';
         a.click();
         URL.revokeObjectURL(url);
       };

@@ -9,13 +9,11 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"os"
 	"regexp"
 	"strings"
 	"time"
 )
 
-const HTTPAllowlistEnv = "AGENTFLOW_JENKINS_HTTP_ALLOWED_HOSTS"
 const JobListDepth = 8
 
 type Client struct {
@@ -34,18 +32,6 @@ func ValidateURL(raw string) error {
 	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Hostname() == "" ||
 		u.User != nil || u.ForceQuery || strings.Contains(raw, "#") || u.RawQuery != "" || u.Opaque != "" {
 		return errors.New("请输入不含凭据、查询参数或片段的 Jenkins 地址")
-	}
-	if u.Scheme == "http" {
-		allowed := false
-		for _, authority := range strings.Split(os.Getenv(HTTPAllowlistEnv), ",") {
-			if u.Port() != "" && strings.EqualFold(u.Host, strings.TrimSpace(authority)) {
-				allowed = true
-				break
-			}
-		}
-		if !allowed {
-			return errors.New("Jenkins 地址须使用 HTTPS，明文 HTTP 需要管理员显式放行主机和端口")
-		}
 	}
 	for _, part := range strings.Split(u.Path, "/") {
 		if part == "." || part == ".." || strings.Contains(part, "\\") {

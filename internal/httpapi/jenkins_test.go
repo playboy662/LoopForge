@@ -51,7 +51,6 @@ func TestJenkinsConfigurationAndSOPDispatch(t *testing.T) {
 		}
 	}))
 	defer controller.Close()
-	t.Setenv("AGENTFLOW_JENKINS_HTTP_ALLOWED_HOSTS", strings.TrimPrefix(controller.URL, "http://"))
 	const projectID = "platform"
 	const base = "/api/projects/" + projectID + "/jenkins"
 	request := func(method, path string, body any, want int) string {
@@ -78,12 +77,32 @@ func TestJenkinsConfigurationAndSOPDispatch(t *testing.T) {
 	if jobs := request(http.MethodGet, base+"/jobs?connectionId=controller", nil, http.StatusOK); jobs != `["team/deploy"]` {
 		t.Fatalf("jobs = %s", jobs)
 	}
+	if err := f.s.PutProject(domain.Project{ID: "other-project", Name: "Other"}); err != nil {
+		t.Fatal(err)
+	}
+	for _, repository := range []domain.Repository{
+		{ID: "own-repo", ProjectID: projectID, Name: "后端仓库"},
+		{ID: "other-repo", ProjectID: "other-project", Name: "其他仓库"},
+	} {
+		if err := f.s.PutRepository(repository); err != nil {
+			t.Fatal(err)
+		}
+	}
 	binding := map[string]any{"id": "deploy-test", "connectionId": "controller", "service": "后端", "environment": "测试", "job": "team/disabled"}
+	for _, repositoryID := range []string{"", "other-repo"} {
+		binding["repositoryId"] = repositoryID
+		if body := request(http.MethodPut, base+"/bindings", binding, http.StatusBadRequest); !strings.Contains(body, "请选择当前项目的代码仓库") {
+			t.Fatalf("invalid repository accepted or wrong error: %s", body)
+		}
+	}
+	binding["repositoryId"] = "own-repo"
 	request(http.MethodPut, base+"/bindings", binding, http.StatusBadRequest)
 	binding["job"] = "team/deploy"
 	request(http.MethodPut, base+"/bindings", binding, http.StatusBadRequest)
 	binding["parameters"] = map[string]string{"BRANCH": "test", "ENV": "qa"}
-	request(http.MethodPut, base+"/bindings", binding, http.StatusOK)
+	if body := request(http.MethodPut, base+"/bindings", binding, http.StatusOK); !strings.Contains(body, `"repositoryName":"后端仓库"`) || !strings.Contains(body, `"connectionName":"Jenkins"`) {
+		t.Fatalf("binding labels missing: %s", body)
+	}
 
 	wf := domain.WorkflowDefinition{
 		ID: "jenkins-smoke", ProjectID: projectID, Name: "发布测试", SandboxProfileID: "local",
@@ -185,5 +204,24 @@ func TestJenkinsConfigurationAndSOPDispatch(t *testing.T) {
 	result = wait(run.ID, "failed").Nodes["deploy"]
 	if !strings.Contains(result.Error, "未获该 Jenkins 连接授权") || triggers.Load() != 3 {
 		t.Fatalf("revoked target was submitted: %+v; calls = %d", result, triggers.Load())
+	}
+	request(http.MethodPut, "/api/platform/jenkins", map[string]any{
+		"id": "controller", "name": "Jenkins", "url": controller.URL + "/ci",
+		"username": "delivery", "allProjects": true,
+	}, http.StatusOK)
+	run = start(gated.ID)
+	wait(run.ID, "waiting")
+	if err := f.s.DeleteRepository("own-repo"); err != nil {
+		t.Fatal(err)
+	}
+	if body := request(http.MethodGet, base+"/bindings", nil, http.StatusOK); !strings.Contains(body, `"unavailable":true`) {
+		t.Fatalf("binding to deleted repository was not marked unavailable: %s", body)
+	}
+	if err := f.e.Approve(run.ID, "approve", ""); err != nil {
+		t.Fatal(err)
+	}
+	result = wait(run.ID, "failed").Nodes["deploy"]
+	if !strings.Contains(result.Error, "代码仓库已不属于当前项目") || triggers.Load() != 3 {
+		t.Fatalf("target for deleted repository was submitted: %+v; calls = %d", result, triggers.Load())
 	}
 }

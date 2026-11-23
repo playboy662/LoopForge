@@ -674,7 +674,7 @@ func (e *Engine) executeNode(ctx context.Context, runID string, wf domain.Workfl
 				command = "python3 -c " + shellSingleQuote(script)
 			}
 			rawOutput, runErr := executeForTargets(current, node.ExecutionScope, func(target executionTarget) (string, error) {
-				bound := bindExecutionTarget(command, target)
+				bound := e.bindScriptRequirement(current, bindExecutionTarget(command, target))
 				targetSink := executionTargetSink(sink, target)
 				scriptAssets := e.resolveScriptMCPAssets(current.ExecutionContext.ProjectID, current.ExecutionContext.ResponsibleUserID)
 				if execMachine := e.defaultExecutionRunner(current); execMachine != "" {

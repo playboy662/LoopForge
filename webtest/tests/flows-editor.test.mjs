@@ -164,7 +164,7 @@ test('Jenkins node saves a project Job binding without connection credentials', 
   const app = await loadApp();
   t.after(app.close);
   app.router.get('/api/projects/project-1/jenkins/bindings', [
-    { id: 'api-test', environment: '测试', service: '后端', job: 'team/deploy' },
+    { id: 'api-test', repositoryName: '后端仓库', environment: '测试', connectionName: '测试 Jenkins', job: 'team/deploy' },
   ]);
   app.router.put('/api/workflows', (call) => ({ ...call.body, revision: 1 }));
   app.evaluate(`switchView('flow');state.workflow={id:'jenkins-flow',projectId:'project-1',
@@ -172,7 +172,7 @@ test('Jenkins node saves a project Job binding without connection credentials', 
     addNode('jenkins',{at:{x:20,y:40}})`);
   await settle(6);
   const select = app.document.querySelector('[data-p="jenkinsBindingId"]');
-  assert.match(select.textContent, /测试 · 后端 · team\/deploy/);
+  assert.match(select.textContent, /后端仓库 · 测试 · 测试 Jenkins · team\/deploy/);
   select.value = 'api-test';
   select.dispatchEvent(new app.window.Event('input', { bubbles: true }));
   await app.evaluate('saveWorkflow()');

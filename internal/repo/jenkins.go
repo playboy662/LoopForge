@@ -28,6 +28,7 @@ func (c JenkinsConnection) AllowsProject(projectID string) bool {
 type JenkinsBinding struct {
 	ProjectID     string            `json:"projectId" gorm:"size:100;primaryKey;not null;comment:所属项目"`
 	ID            string            `json:"id" gorm:"size:80;primaryKey;not null;comment:项目内绑定标识"`
+	RepositoryID  string            `json:"repositoryId,omitempty" gorm:"size:100;not null;default:'';comment:代码仓库标识"`
 	ConnectionID  string            `json:"connectionId" gorm:"size:80;not null;default:'';comment:连接标识"`
 	Service       string            `json:"service" gorm:"size:120;not null;default:'';comment:服务名称"`
 	Environment   string            `json:"environment" gorm:"size:80;not null;default:'';comment:部署环境"`
@@ -112,7 +113,7 @@ func (r *JenkinsRepo) SaveJenkinsBinding(item JenkinsBinding) error {
 		item.Parameters = map[string]string{}
 	}
 	return r.DB.Clauses(clause.OnConflict{DoUpdates: clause.AssignmentColumns([]string{
-		"connection_id", "service", "environment", "job", "parameter", "value", "parameters", "parameterized",
+		"repository_id", "connection_id", "service", "environment", "job", "parameter", "value", "parameters", "parameterized",
 	})}).Create(&item).Error
 }
 
