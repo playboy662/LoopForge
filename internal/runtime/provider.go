@@ -15,7 +15,7 @@ type SandboxRequirements struct {
 	CLIStates        []CLIStateRequirement
 	PrivateHome      bool
 	BunFS            bool
-	// RunnerLoginRelay allows Docker Codex account login to reach the host refresh listener.
+	// RunnerLoginRelay lets Docker runner jobs reach host credential relays.
 	RunnerLoginRelay bool `json:",omitempty"`
 }
 

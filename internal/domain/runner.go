@@ -448,10 +448,11 @@ type RunnerTask struct {
 // RunnerSandboxRequirements freezes the union needed by every run node, so
 // interactive terminals and script/agent tasks use the same sandbox identity.
 type RunnerSandboxRequirements struct {
-	CLIStates        []RunnerCLIStateRequirement `json:"cliStates,omitempty"`
-	PrivateHome      bool                        `json:"privateHome,omitempty"`
-	BunFS            bool                        `json:"bunFS,omitempty"`
-	RunnerLoginRelay bool                        `json:"runnerLoginRelay,omitempty"`
+	CLIStates   []RunnerCLIStateRequirement `json:"cliStates,omitempty"`
+	PrivateHome bool                        `json:"privateHome,omitempty"`
+	BunFS       bool                        `json:"bunFS,omitempty"`
+	// RunnerLoginRelay enables the runner's Docker connection to its host for CLI login and Git credentials.
+	RunnerLoginRelay bool `json:"runnerLoginRelay,omitempty"`
 }
 type RunnerCLIStateRequirement struct {
 	Directory string   `json:"directory"`

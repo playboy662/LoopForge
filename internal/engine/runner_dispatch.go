@@ -5,8 +5,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -149,7 +151,8 @@ func (e *Engine) requireWorkBranchCapabilities(runnerID string, repositories []d
 
 func (e *Engine) runnerSandboxSpec(run domain.Run) (*domain.RunnerSandboxSpec, error) {
 	runnerID := e.defaultExecutionRunner(run)
-	if err := e.requireWorkBranchCapabilities(runnerID, run.RepositoryContexts()); err != nil {
+	repositories := run.RepositoryContexts()
+	if err := e.requireWorkBranchCapabilities(runnerID, repositories); err != nil {
 		return nil, err
 	}
 	profile, resources, err := e.workspaceSandboxProfile(run)
@@ -157,19 +160,24 @@ func (e *Engine) runnerSandboxSpec(run domain.Run) (*domain.RunnerSandboxSpec, e
 		return nil, err
 	}
 	spec := resolvedSandboxSnapshot(profile, resources)
-	var codexLoginRelay bool
+	var codexLoginRelay, gitRelay bool
 	if profile.Driver == domain.SandboxDriverDocker && runnerID != "" {
 		runner, ok := e.repo.Runner(runnerID)
 		codexLoginRelay = ok && runner.RuntimeAuthMode("codex") == domain.RuntimeAuthLocal
+		gitRelay = slices.ContainsFunc(repositories, func(repository domain.RepositoryContext) bool {
+			remote, err := url.Parse(strings.TrimSpace(repository.CloneURL))
+			return err == nil && remote.Host != "" && (remote.Scheme == "http" || remote.Scheme == "https")
+		})
 	}
 	requirements, err := workspaceConversationRequirements(e.repo, run.WorkflowSnapshot, codexLoginRelay)
 	if err != nil {
 		return nil, err
 	}
 	spec.Requirements = &domain.RunnerSandboxRequirements{
-		PrivateHome:      requirements.PrivateHome,
-		BunFS:            requirements.BunFS,
-		RunnerLoginRelay: requirements.RunnerLoginRelay,
+		PrivateHome: requirements.PrivateHome,
+		BunFS:       requirements.BunFS,
+		// Existing runners use this field to wire Docker access to host relays.
+		RunnerLoginRelay: requirements.RunnerLoginRelay || gitRelay,
 	}
 	for _, state := range requirements.CLIStates {
 		spec.Requirements.CLIStates = append(spec.Requirements.CLIStates, domain.RunnerCLIStateRequirement{Directory: state.Directory, Files: append([]string(nil), state.Files...)})

@@ -63,7 +63,7 @@ func TestRunnerSandboxSpecUsesFrozenSnapshot(t *testing.T) {
 	}
 }
 
-func TestRunnerSandboxSpecRequestsRelayForDockerCodexAccountLogin(t *testing.T) {
+func TestRunnerSandboxSpecRequestsRelayForDockerCredentials(t *testing.T) {
 	s, err := repo.OpenTest()
 	if err != nil {
 		t.Fatal(err)
@@ -71,11 +71,15 @@ func TestRunnerSandboxSpecRequestsRelayForDockerCodexAccountLogin(t *testing.T) 
 	defer s.Close()
 	e := New(s, runtime.NewManager(t.TempDir()))
 	for _, tc := range []struct {
-		name, driver, provider, authMode string
-		wantRelay                        bool
+		name, driver, provider, authMode, cloneURL string
+		wantRelay                                  bool
 	}{
 		{name: "Codex account login", driver: "docker", provider: "codex", authMode: domain.RuntimeAuthLocal, wantRelay: true},
 		{name: "Codex API key", driver: "docker", provider: "codex", authMode: domain.RuntimeAuthPersonal},
+		{name: "Docker Git HTTP", driver: "docker", provider: "codex", authMode: domain.RuntimeAuthPersonal, cloneURL: "http://git.example:8080/team/code.git", wantRelay: true},
+		{name: "Docker Git HTTPS", driver: "docker", provider: "codex", authMode: domain.RuntimeAuthPersonal, cloneURL: "https://git.example/team/code.git", wantRelay: true},
+		{name: "Docker Git SSH does not use HTTP relay", driver: "docker", provider: "codex", authMode: domain.RuntimeAuthPersonal, cloneURL: "git@git.example:team/code.git"},
+		{name: "native Git HTTP uses loopback", driver: "native", provider: "codex", authMode: domain.RuntimeAuthPersonal, cloneURL: "http://git.example:8080/team/code.git"},
 		{name: "CodeBuddy API key", driver: "docker", provider: "codebuddy", authMode: domain.RuntimeAuthPersonal},
 		{name: "Claude login uses stdio", driver: "docker", provider: "claude-code", authMode: domain.RuntimeAuthLocal},
 		{name: "Antigravity refreshes inside its sandbox", driver: "docker", provider: "agy", authMode: domain.RuntimeAuthLocal},
@@ -96,6 +100,9 @@ func TestRunnerSandboxSpecRequestsRelayForDockerCodexAccountLogin(t *testing.T) 
 					SandboxSnapshot: &domain.RunnerSandboxSpec{Profile: domain.SandboxProfile{Driver: tc.driver}},
 					Nodes:           []domain.WorkflowNode{{Type: "script"}, {Type: "agent", AgentID: agent.ID}},
 				},
+			}
+			if tc.cloneURL != "" {
+				run.Repositories = []domain.RepositoryContext{{RepositoryID: "code", CloneURL: tc.cloneURL}}
 			}
 			spec, err := e.runnerSandboxSpec(run)
 			if err != nil {
