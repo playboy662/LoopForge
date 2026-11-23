@@ -10,7 +10,7 @@ function platformJenkinsHTML(){
       ${paRow('Jenkins 地址','支持 HTTP 和 HTTPS。','<input class="pa-input" name="url" type="url" required placeholder="https://ci.example.com/jenkins">')}
       ${paRow('服务账号','', '<input class="pa-input" name="username" required autocomplete="off">')}
       ${paRow('API Token','修改地址或账号时需要重新填写。','<input class="pa-input" name="token" type="password" autocomplete="new-password">')}
-      <p data-status role="status"></p><div><button class="button primary" type="submit">保存连接</button></div>
+      <p data-status role="status"></p><div><button class="button primary" type="submit">保存连接</button> <button class="button ghost" type="button" data-test-connection>测试连接</button></div>
     </form>`);
 }
 
@@ -19,8 +19,11 @@ async function loadPlatformJenkins(host){
   if(!form||form.dataset.loaded)return;
   form.dataset.loaded='true';
   const fields=form.elements,status=form.querySelector('[data-status]'),save=form.querySelector('[type=submit]');
+  const test=form.querySelector('[data-test-connection]');
   const endpoint='/api/platform/jenkins';
   let items=[];
+  const connectionValues=()=>({id:fields.existing.value,url:fields.url.value,username:fields.username.value,token:fields.token.value});
+  const setBusy=busy=>{save.disabled=test.disabled=busy};
   function showList(id){
     fields.existing.innerHTML=jenkinsOption('','新增连接')+items.map(item=>jenkinsOption(item.id,item.name)).join('');
     fields.existing.value=id;
@@ -33,22 +36,37 @@ async function loadPlatformJenkins(host){
     fields.token.value='';
     status.textContent='';
   };
+  form.addEventListener('input',()=>{status.textContent=''});
+  test.onclick=async()=>{
+    if(!fields.url.reportValidity()||!fields.username.reportValidity())return;
+    const body=JSON.stringify(connectionValues());
+    const showResult=message=>{
+      if(body===JSON.stringify(connectionValues()))status.textContent=message;
+    };
+    setBusy(true);
+    status.textContent='正在测试连接…';
+    try{
+      const result=await api(endpoint+'/test',{method:'POST',body,silent:true});
+      showResult(result.jobCount?`连接正常，发现 ${result.jobCount} 个可构建 Job`:'认证通过，未找到可见的可构建 Job');
+    }catch(err){showResult(err.message)}
+    finally{setBusy(false)}
+  };
   form.onsubmit=async event=>{
     event.preventDefault();
-    save.disabled=true;
-    const id=fields.existing.value||uid('jenkins');
-    const value={id,name:fields.displayName.value,url:fields.url.value,username:fields.username.value,
-      token:fields.token.value,allProjects:true};
+    if(save.disabled)return;
+    setBusy(true);
+    const value=connectionValues();
+    const id=value.id||uid('jenkins');
     try{
-      items=await api(endpoint,{method:'PUT',body:JSON.stringify(value),silent:true});
+      items=await api(endpoint,{method:'PUT',body:JSON.stringify({...value,id,name:fields.displayName.value,allProjects:true}),silent:true});
       fields.token.value='';
       showList(id);
       status.textContent='连接已保存';
     }catch(err){status.textContent=err.message}
-    finally{save.disabled=false}
+    finally{setBusy(false)}
   };
-  save.disabled=true;
-  try{items=await api(endpoint,{silent:true});showList('');save.disabled=false}
+  setBusy(true);
+  try{items=await api(endpoint,{silent:true});showList('');setBusy(false)}
   catch(err){delete form.dataset.loaded;status.textContent=err.message}
 }
 

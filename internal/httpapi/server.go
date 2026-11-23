@@ -366,6 +366,7 @@ func newWithNotifications(s *repo.Store, e *engine.Engine, syncSvc *tracker.Serv
 	g.GET("/api/projects/:id/business-domain/history", api.projects.businessDomainAssignment)
 	g.GET("/api/platform/jenkins", api.jenkins.connections)
 	g.PUT("/api/platform/jenkins", api.jenkins.connections)
+	g.POST("/api/platform/jenkins/test", api.jenkins.testConnection)
 	g.GET("/api/projects/:id/jenkins/connections", api.jenkins.projectConnections)
 	g.GET("/api/projects/:id/jenkins/jobs", api.jenkins.jobs)
 	g.GET("/api/projects/:id/jenkins/bindings", api.jenkins.bindings)

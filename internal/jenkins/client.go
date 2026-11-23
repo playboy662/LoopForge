@@ -67,6 +67,43 @@ type listedJob struct {
 	Jobs      []listedJob `json:"jobs"`
 }
 
+// CheckConnection exercises the same read operations used to select a job.
+func (c Client) CheckConnection(ctx context.Context) (int, error) {
+	res, err := c.request(ctx, http.MethodGet, "/whoAmI/api/json", nil)
+	if err != nil {
+		return 0, err
+	}
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusOK {
+		return 0, readStatusError("验证账号", res.StatusCode)
+	}
+	var identity struct {
+		Authenticated bool
+		Anonymous     bool
+	}
+	if err := json.NewDecoder(io.LimitReader(res.Body, 64<<10)).Decode(&identity); err != nil {
+		return 0, errors.New("Jenkins 返回的身份信息无效，请检查 Jenkins 地址")
+	}
+	if !identity.Authenticated || identity.Anonymous {
+		return 0, errors.New("Jenkins 未识别服务账号，请检查账号和 API Token")
+	}
+	jobs, err := c.Jobs(ctx)
+	return len(jobs), err
+}
+
+func readStatusError(action string, status int) error {
+	switch status {
+	case http.StatusUnauthorized:
+		return errors.New("Jenkins 认证失败（HTTP 401），请检查账号和 API Token")
+	case http.StatusForbidden:
+		return fmt.Errorf("Jenkins %s被拒绝（HTTP 403），请检查账号的读取权限", action)
+	case http.StatusNotFound:
+		return fmt.Errorf("Jenkins %s失败（HTTP 404），请检查地址和路径", action)
+	default:
+		return fmt.Errorf("Jenkins %s失败（HTTP %d）", action, status)
+	}
+}
+
 func (c Client) Jobs(ctx context.Context) ([]string, error) {
 	tree := "jobs[name,_class,buildable]"
 	for range JobListDepth - 1 {
@@ -78,7 +115,7 @@ func (c Client) Jobs(ctx context.Context) ([]string, error) {
 	}
 	defer res.Body.Close()
 	if res.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("Jenkins 读取 Job 列表失败（HTTP %d）", res.StatusCode)
+		return nil, readStatusError("读取 Job 列表", res.StatusCode)
 	}
 	var root listedJob
 	if err := json.NewDecoder(io.LimitReader(res.Body, 2<<20)).Decode(&root); err != nil {

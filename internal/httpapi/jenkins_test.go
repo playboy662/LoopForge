@@ -10,7 +10,79 @@ import (
 	"time"
 
 	"agentflow/internal/domain"
+	"agentflow/internal/repo"
 )
+
+func TestJenkinsTestConnection(t *testing.T) {
+	t.Setenv("AGENTFLOW_AUTH_REQUIRED", "true")
+	f := cvBNewHTTPFixture(t)
+	const endpoint = "/api/platform/jenkins/test"
+	const token = "fixture-token"
+	var called atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		called.Add(1)
+		if r.Method != http.MethodGet {
+			t.Errorf("unexpected method %s", r.Method)
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		user, password, _ := r.BasicAuth()
+		if user != "delivery" || password != token && password != "no-read" && password != "anonymous" {
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		switch r.URL.Path {
+		case "/ci/whoAmI/api/json":
+			fmt.Fprintf(w, `{"authenticated":true,"anonymous":%t}`, password == "anonymous")
+		case "/ci/api/json":
+			if password == "no-read" {
+				w.WriteHeader(http.StatusForbidden)
+				return
+			}
+			fmt.Fprint(w, `{"jobs":[{"name":"sample","buildable":true}]}`)
+		default:
+			t.Errorf("unexpected path %s", r.URL.Path)
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer server.Close()
+	input := map[string]string{"url": server.URL + "/ci/", "username": "delivery", "token": token}
+	check := func(code int, message string) {
+		t.Helper()
+		res := cvBRequest(t, f, http.MethodPost, endpoint, input, true)
+		if res.Code != code || !strings.Contains(res.Body.String(), message) || strings.Contains(res.Body.String(), token) {
+			t.Fatalf("HTTP %d: %s", res.Code, res.Body.String())
+		}
+	}
+	check(http.StatusForbidden, "只有平台管理员")
+	if called.Load() != 0 {
+		t.Fatal("Jenkins contacted before the admin check")
+	}
+	t.Setenv("AGENTFLOW_PLATFORM_ADMINS", f.user.LoginName)
+	check(http.StatusOK, `"jobCount":1`)
+	for _, item := range []struct{ token, message string }{
+		{"wrong", "HTTP 401"}, {"no-read", "HTTP 403"}, {"anonymous", "未识别服务账号"},
+	} {
+		input["token"] = item.token
+		check(http.StatusBadGateway, item.message)
+	}
+	if saved, err := f.s.JenkinsConnections(); err != nil || len(saved) != 0 {
+		t.Fatalf("test connection persisted configuration: count=%d error=%v", len(saved), err)
+	}
+	if err := f.s.SaveJenkinsConnection(repo.JenkinsConnection{
+		ID: "saved", Name: "Saved", URL: server.URL + "/ci", Username: "delivery", Token: token,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	input["id"], input["token"] = "saved", ""
+	check(http.StatusOK, `"jobCount":1`)
+	before := called.Load()
+	input["url"] = server.URL + "/different-path"
+	check(http.StatusBadRequest, "填写 API Token")
+	if called.Load() != before {
+		t.Fatal("stored token used with a different URL")
+	}
+}
 
 func TestJenkinsConfigurationAndSOPDispatch(t *testing.T) {
 	t.Setenv("AGENTFLOW_AUTH_REQUIRED", "true")

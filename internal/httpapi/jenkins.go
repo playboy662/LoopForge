@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"regexp"
 	"slices"
@@ -12,6 +13,7 @@ import (
 	"agentflow/internal/repo"
 
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 )
 
 type jenkinsHandlers struct{ *deps }
@@ -72,6 +74,54 @@ func (h *jenkinsHandlers) connections(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, items)
+}
+
+func (h *jenkinsHandlers) testConnection(c *gin.Context) {
+	if !authRequired() || !h.isPlatformAdmin(c.Request) {
+		c.JSON(http.StatusForbidden, gin.H{"error": "只有平台管理员可以测试 Jenkins 连接"})
+		return
+	}
+	var input struct {
+		ID       string `json:"id"`
+		URL      string `json:"url"`
+		Username string `json:"username"`
+		Token    string `json:"token"`
+	}
+	if !decodeLimit(c, &input, 4<<10) {
+		return
+	}
+	address := strings.TrimRight(strings.TrimSpace(input.URL), "/")
+	username, token := strings.TrimSpace(input.Username), strings.TrimSpace(input.Token)
+	if len(address) > 500 || username == "" || len(username) > 160 || strings.ContainsAny(username, ":\r\n") ||
+		len(token) > 300 || input.ID != "" && !jenkinsKey.MatchString(input.ID) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "请填写有效的 Jenkins 地址、账号和 API Token"})
+		return
+	}
+	if err := jenkins.ValidateURL(address); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	if token == "" && input.ID != "" {
+		saved, err := h.repo.JenkinsController(input.ID)
+		if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+			respond(c, err)
+			return
+		}
+		if err == nil && saved.URL == address && saved.Username == username {
+			token = saved.Token
+		}
+	}
+	if token == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "新增连接或修改地址、账号时需要填写 API Token"})
+		return
+	}
+	client := jenkins.Client{BaseURL: address, Username: username, Token: token}
+	count, err := client.CheckConnection(c.Request.Context())
+	if err != nil {
+		c.JSON(http.StatusBadGateway, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"jobCount": count})
 }
 
 func (h *jenkinsHandlers) projectAllowed(c *gin.Context, ownerOnly bool) bool {
