@@ -99,7 +99,7 @@ Enterprise authentication gateways can sign users in by header with `AGENTFLOW_T
 
 ### Project credentials
 
-The installer configures `AGENTFLOW_PROJECT_CREDENTIAL_KEY` in `.env` when the setting is missing. For a custom deployment, set it in the platform environment to a Base64-encoded 32-byte random key, which you can generate with `openssl rand -base64 32`. Share the same key across instances and keep it with database backups. After replacing the key, enter every value again on each existing credential to keep its bindings. Leaving values blank requires the previous ciphertext to be readable with the configured key.
+The installer and `./start.sh pull` configure `AGENTFLOW_PROJECT_CREDENTIAL_KEY` in `.env` when the setting is missing or blank. They preserve an existing nonempty setting. For a custom deployment, set it in the platform environment to a Base64-encoded 32-byte random key, which you can generate with `openssl rand -base64 32`. Share the same key across instances and keep it with database backups. After replacing the key, enter every value again on each existing credential to keep its bindings. Leaving values blank requires the previous ciphertext to be readable with the configured key.
 
 Use a project-specific name for any credential that would otherwise share a variable name with a platform executor, Git authentication, or proxy setting. Runners receive only the variables selected for the current execution. Remote execution of these bindings requires Runner 0.12.1 or later.
 
@@ -116,6 +116,39 @@ The Compose deployment mounts the host Docker socket into the platform container
 Docker SOP nodes using a standard CLI executor first look for the CLI on the sandbox user's PATH. When it is missing, LoopForge uses a shared installation for the platform image where available or runs the same installer as conversation workspaces in the container. The install uses the sandbox's configured proxy, and later nodes in that container reuse the CLI. In-container installation requires a writable filesystem and access to the official package source. Read-only sandboxes can use a CLI from the image or the mounted toolchain. ZCode uses the official executable supplied by the image.
 
 Access to the Docker socket is equivalent to root on the host. Two safeguards follow from that: there is no unisolated sandbox type, so every task the platform runs itself is in a sandbox (the `AGENTFLOW_LOCAL_SANDBOX` setting is gone), and only platform administrators can point a repository at a host source path. Even so, anyone who can run SOPs can execute code in containers on this host, so only give accounts to people you trust and do not expose the service to untrusted networks. Agent CLIs also apply a bound repository's own configuration as their native rules define, including unattended SOP runs: `AGENTS.md`/`CLAUDE.md` instructions, `.codebuddy/`, `.claude/settings.json` (hooks and environment) and `.mcp.json` can start commands or MCP servers inside the sandbox. Bind only repositories whose contents you trust. To run without the socket, remove the `docker.sock` volume from `compose.yaml`, then connect a separate Docker-capable worker or execution machine for SOPs, including the welcome SOP, which now runs in `generic-docker`.
+
+### Privileged Docker sandboxes
+
+Sandbox editors can request privileged mode for an individual Docker profile under **Advanced settings**. The executing worker or Runner rejects that request unless its own process environment sets `AGENTFLOW_ALLOW_PRIVILEGED_SANDBOX=true`. For Compose, set the variable in `.env` and recreate the platform container. For a native worker or a connected Runner, set it in the foreground command environment or service configuration and restart the process.
+
+Enable this setting only on Docker hosts where the operator trusts every user who can run work there. Privileged containers can access host devices and may gain control of the Docker host. Connected machines need Runner `0.12.5` or later. Automatic SOP sandbox selection considers ordinary sandboxes, and a privileged profile can be selected explicitly. A non-root execution service continues to map default-root images to its UID and GID to keep workspace files accessible.
+
+### Docker sandbox resource limits
+
+Set CPU and memory limits under **Advanced settings** in a Docker sandbox's
+configuration. Each new run or conversation workspace records those settings in
+its sandbox snapshot. To use profile limits on a remote execution machine,
+upgrade it to Runner 0.12.6 or later.
+
+Set machine-wide caps in the environment of each platform process or Runner
+that starts Docker sandboxes. With the published Compose stack, set these
+variables in `.env`. Restart the process to apply environment changes. Each
+sandbox uses the lower configured value for a resource. An empty value or
+`0` omits that setting. When both settings are omitted, Docker uses the
+daemon's default.
+
+| Setting | Limit |
+|---|---|
+| `AGENTFLOW_DOCKER_SANDBOX_CPU_MILLICORES` | CPU bandwidth. `1000` is one CPU. The minimum enabled value is `10`. |
+| `AGENTFLOW_DOCKER_SANDBOX_MEMORY_MIB` | Memory in MiB. The minimum enabled value is `6`. Swap follows the Docker daemon's policy. |
+| `AGENTFLOW_DOCKER_SANDBOX_PIDS` | Total tasks, including threads. |
+
+Docker applies the budget to the whole workspace container, including terminal
+sessions and later `docker exec` commands. When a container's effective limits change,
+LoopForge replaces the container the next time it opens the sandbox. The bind
+mounted checkout survives. The daemon must support the requested controllers.
+
+Image builds and browser sidecars run separately from the workspace container.
 
 ### Slow networks: clone and image build limits
 
