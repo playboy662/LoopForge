@@ -1,6 +1,6 @@
 # Docker Compose 测试交付
 
-仅在项目明确选择 Docker Compose 交付时采用本节；CI 项目继续使用原有 Job 协议。选择由技术方案的 `deliveryPolicy.provider` 固定为 `docker_compose`，方案审批后不得自行改换方式。
+仅在项目明确选择 Docker Compose 交付时采用本节；CI 项目通过已配置的 MCP 工具调用外部流水线。选择由技术方案的 `deliveryPolicy.provider` 固定为 `docker_compose`，方案审批后不得自行改换方式。
 
 ## 环境资产与阶段职责
 
@@ -41,7 +41,7 @@ Compose project 名固定为 `lf-<完整flowId>`，允许通过 COMPOSE_PROJECT_
 
 ## 运维交付
 
-继续先准备本轮 Git PR/MR，mr-check 成功后，在部署节点核对实际合并状态及全部仓库版本，保留持久的合并记录；部分合并/状态不明立即停止。不得触发 Jenkins Job。
+继续先准备本轮 Git PR/MR，mr-check 成功后，在部署节点核对实际合并状态及全部仓库版本，保留持久的合并记录；部分合并/状态不明立即停止。按已批准的交付方式执行，不自行切换部署入口。
 
 在实际原生交付沙箱中执行 loopforge-docker-check，使用 Docker Compose 从精确合并 SHA 构建。多仓库并排，Compose 构建上下文只指向已批准仓库目录。以 flowId 隔离网络、容器、命名卷和数据库用户，不能使用全局 container_name 或宿主共享数据库冒充隔离。仅发布批准的本机/测试端口，记录从 QA 沙箱可达的地址。
 

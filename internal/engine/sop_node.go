@@ -73,7 +73,6 @@ func (e *Engine) executeSOPNode(ctx context.Context, runID string, wf domain.Wor
 		exec := parent.ExecutionContext
 		exec.ParentRunID = parent.ID
 		exec.ParentNodeID = node.ID
-		exec.JenkinsPath = jenkinsNodeKey(exec.JenkinsPath, node.ID)
 		// The child works in the parent's checkout, so its code changes are
 		// there when the parent continues; nothing goes through the remote.
 		exec.WorkspaceRunID = workspaceRunID(parent)

@@ -13,19 +13,25 @@ import (
 )
 
 func (e *Engine) workspaceSandboxProfile(run domain.Run) (domain.SandboxProfile, runtime.SandboxResources, error) {
-	if spec := run.WorkflowSnapshot.SandboxSnapshot; spec != nil {
-		return spec.Profile, sandboxResourcesFromSnapshot(spec), nil
+	spec := run.WorkflowSnapshot.SandboxSnapshot
+	if spec == nil {
+		id := strings.TrimSpace(run.WorkflowSnapshot.SandboxProfileID)
+		if id == "" {
+			id = repo.DefaultSandboxProfileID
+		}
+		profile, ok := e.repo.Sandbox(id)
+		if !ok {
+			return profile, runtime.SandboxResources{}, fmt.Errorf("sandbox profile %q not found", id)
+		}
+		var err error
+		if spec, err = resolveSandbox(profile); err != nil {
+			return profile, runtime.SandboxResources{}, err
+		}
 	}
-	id := strings.TrimSpace(run.WorkflowSnapshot.SandboxProfileID)
-	if id == "" {
-		id = "local"
+	if err := domain.ValidateFrozenSandbox(spec.Profile); err != nil {
+		return domain.SandboxProfile{}, runtime.SandboxResources{}, err
 	}
-	profile, ok := e.repo.Sandbox(id)
-	if !ok {
-		return profile, runtime.SandboxResources{}, fmt.Errorf("sandbox profile %q not found", id)
-	}
-	resources, err := resolveSandboxResources(e.repo, profile)
-	return profile, resources, err
+	return spec.Profile, sandboxResourcesFromSnapshot(spec), nil
 }
 
 // acquireConversationEnvironment does not acquire or steal the SOP scheduler
@@ -88,10 +94,18 @@ func (e *Engine) withPreparationProgress(ctx context.Context, runID string) cont
 func (e *Engine) prepareLocalEnvironment(ctx context.Context, run domain.Run, env *runEnvironment) (runtime.WorkspacePreparationStatus, error) {
 	// The first sandbox call below builds the Docker image when it is missing.
 	ctx = e.withPreparationProgress(ctx, run.ID)
+	if run.UsesConversationWorkspace() {
+		ctx = runtime.WithSandboxGit(ctx, env.sandbox, env.credentialSnapshot())
+	}
 	env.preparing.Store(true)
 	defer env.preparing.Store(false)
 	// Caller owns env.nodeMu so reconstruction is serialized without turning
 	// environment preparation into business-node attempts.
+	if env.activeExecutions.Load() == 0 {
+		if err := runtime.RefreshWorkspaceGitTools(ctx, env.sandbox); err != nil {
+			return runtime.WorkspacePreparationStatus{Status: "failed", Error: err.Error(), Steps: []runtime.WorkspacePreparationStep{}}, err
+		}
+	}
 	assets := e.resolveScriptMCPAssets(run.ExecutionContext.ProjectID, run.ExecutionContext.ResponsibleUserID)
 	if len(runtime.PreparationNodes(workspacePreparationPlan(run))) > 0 {
 		if err := runtime.ProvisionMCPAssets(ctx, env, env.Workspace(), assets, nil); err != nil {
@@ -161,14 +175,14 @@ func (e *Engine) preparedWorkspaceRequest(run domain.Run, request domain.RunnerW
 	request.TerminalGitHTTPCredentials = nil
 	terminalOpen := request.Operation == domain.RunnerWorkspaceOperationTerminal && request.Terminal != nil && request.Terminal.Operation == "open"
 	if runnerID != "" && (request.Operation == domain.RunnerWorkspaceOperationPrepare || terminalOpen) {
-		invocation.GitHTTPCredentials = runner.GitExecutionCredentials(credentials.GitHTTPCredentials)
+		invocation.GitHTTPCredentials = runner.FilterGitHTTPCredentials(credentials.GitHTTPCredentials)
 		if len(invocation.GitSSHRemotes()) > 0 {
 			invocation.GitSSHKeys = credentials.GitSSHKeys
 		}
 	}
 	if runnerID != "" && terminalOpen {
 		terminalCredentials := e.WorkspaceTerminalGitCredentials(context.Background(), run, request.TerminalOwner)
-		request.TerminalGitHTTPCredentials = runner.GitExecutionCredentials(terminalCredentials.HTTPS)
+		request.TerminalGitHTTPCredentials = runner.FilterGitHTTPCredentials(terminalCredentials.HTTPS)
 		request.TerminalGitSSHKeys = terminalCredentials.SSHKeys
 	}
 	request.RunStatus = run.Status
@@ -390,6 +404,14 @@ func (e *Engine) HandlePreparedWorkspaceTerminal(ctx context.Context, run domain
 	e.runEnvMu.Unlock()
 	if env == nil {
 		return runtime.TerminalResult{}, fmt.Errorf("工作区环境尚未准备，请重新打开终端")
+	}
+	if env.Driver() == domain.SandboxDriverDocker {
+		// Keep the readiness check and PTY launch on the same container. This
+		// caller may hold the run row, so it cannot wait for node preparation.
+		if !env.nodeMu.TryLock() {
+			return runtime.TerminalResult{}, repo.ErrWorkspaceInUse
+		}
+		defer env.nodeMu.Unlock()
 	}
 
 	state := runtime.ReadWorkspacePreparationStatus(env.Workspace(), env.ID())

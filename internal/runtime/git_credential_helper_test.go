@@ -33,7 +33,6 @@ func TestGitCredentialHelperAsksTheSessionGateway(t *testing.T) {
 	}))
 	defer gateway.Close()
 	t.Setenv(SessionGatewayEnv, gateway.URL+"/internal/agent-tools/token/mcp")
-	t.Setenv(GitHostsEnv, "")
 
 	run := func(op, input string) (int, string, string) {
 		var out, errOut bytes.Buffer
@@ -65,14 +64,6 @@ func TestGitCredentialHelperAsksTheSessionGateway(t *testing.T) {
 		t.Fatal("plain HTTP, hostless, store and erase requests must not reach the gateway")
 	}
 
-	t.Setenv(GitHostsEnv, "http://gitlab.example.org:8443=gitlab")
-	if code, out, _ := run("get", "protocol=http\nhost=gitlab.example.org:8443\n\n"); code != 0 || !strings.Contains(out, "password=glpat-secret") {
-		t.Fatal("explicit HTTP scope did not reach the gateway")
-	}
-	if got := asked[len(asked)-1]["protocol"]; got != "http" {
-		t.Fatalf("HTTP credential request used protocol %q", got)
-	}
-
 	gateway.Close()
 	if code, out, errOut := run("get", "protocol=https\nhost=gitlab.example.org:8443\n\n"); code != 0 || out != "" || !strings.Contains(errOut, "unreachable") {
 		t.Fatalf("an ended turn must fail quietly for Git: %d %q %q", code, out, errOut)
@@ -99,6 +90,8 @@ func TestCLIShimHost(t *testing.T) {
 		{name: "gh", origin: "https://ghe.example.com/org/app.git", want: "ghe.example.com"},
 		{name: "glab", origin: "git@gitlab.example.org:group/app.git", want: "gitlab.example.org"},
 		{name: "glab", origin: "https://gitlab.example.org:8443/group/app.git", want: "gitlab.example.org:8443"},
+		{name: "glab", origin: "https://[FD00:0:0::2]:8443/group/app.git", want: "[fd00::2]:8443"},
+		{name: "glab", args: []string{"mr", "list", "--repo", "[FD00:0:0::2]:8443/group/app"}, want: "[fd00::2]:8443"},
 		{name: "gh", env: map[string]string{"GH_HOST": "GHE.example.com"}, origin: "https://github.com/o/r", want: "ghe.example.com"},
 		{name: "glab", env: map[string]string{"GITLAB_HOST": "https://gitlab.example.org"}, want: "gitlab.example.org"},
 		{name: "glab", env: map[string]string{"GL_HOST": "gl.example.org"}, want: "gl.example.org"},

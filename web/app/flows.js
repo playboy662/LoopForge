@@ -142,6 +142,7 @@ function renderFlowHeader(){
 function renderWorkflowMeta(){
   const workflows=catalogWorkflows();
   const wf=state.workflow;
+  if(typeof renderWorkflowProjectCredentials==='function')renderWorkflowProjectCredentials(wf);
   // Generic templates and an unsaved AI draft are not in the project SOP list.
   // Keep the open workflow selected while it is being previewed.
   const options=wf&&!workflows.some(w=>w.id===wf.id)?[wf,...workflows]:workflows;
@@ -201,7 +202,7 @@ function addNode(type,opts={}){
     return;
   }
   flowHistory.record();
-  const labels={agent:'新 Agent 节点',script:'脚本节点',approval:'人工门禁',sop:'SOP 节点',jenkins:'触发 Jenkins'};
+  const labels={agent:'新 Agent 节点',script:'脚本节点',approval:'人工门禁',sop:'SOP 节点'};
   const firstSOP=type==='sop'?sopWorkflowChoices(state.workflow.id)[0]:null;
   const agentId=type==='agent'?(opts.agentId||workflowAgents()[0]?.id||''):'';
   const agent=agentId?workflowAgent(agentId):null;
@@ -274,7 +275,7 @@ function spreadCrowdedNodes(wf){
   return true;
 }
 
-const FLOW_NODE_TYPES={agent:{icon:'bot',label:'Agent 步骤'},script:{icon:'terminal',label:'脚本步骤'},sop:{icon:'layers',label:'子 SOP'},jenkins:{icon:'terminal',label:'触发 Jenkins'},preview:{icon:'eye',label:'预览构建'},approval:{icon:'shield',label:'人工门禁'}};
+const FLOW_NODE_TYPES={agent:{icon:'bot',label:'Agent 步骤'},script:{icon:'terminal',label:'脚本步骤'},sop:{icon:'layers',label:'子 SOP'},preview:{icon:'eye',label:'预览构建'},approval:{icon:'shield',label:'人工门禁'}};
 function flowNodeKind(n){return isPreviewBuildNode(n.id)?'preview':(FLOW_NODE_TYPES[n.type]?n.type:'approval')}
 function flowNodeTint(n){
   const kind=flowNodeKind(n);
@@ -302,7 +303,6 @@ function nodeMeta(n){
     }
     return {kind:'agent',subtitle,tags};
   }
-  if(n.type==='jenkins')return {kind:'jenkins',subtitle:'提交 Jenkins Job',tags:[{text:n.jenkinsBindingId?'已选项目绑定':'未选项目绑定',warn:!n.jenkinsBindingId}]};
   if(n.type==='script'){
     const line=(n.script||'').trim().split('\n')[0];
     return {kind:'script',subtitle:n.scriptLanguage==='python'?'Python 脚本':'Shell 脚本',tags:[line?{text:line,mono:true}:{text:'未配置脚本',warn:true}]};
@@ -879,7 +879,7 @@ function renderAgentAssetsPanel(a){
   const host=$('#agentAssetsPanel');if(!host)return;
   const d=ensureAgentDraft(a);
   const generic=catalogGeneric(state.workflow);
-  const col=(title,sub,name,items,selected)=>{const vis=name==='mcpServers'?(generic?(items||[]):visibleMCPAssets(items)):(name==='rules'||name==='skills'?(items||[]).filter(item=>catalogVisible(item.projectId,item.shared)):visibleAssets(items));const picked=vis.filter(item=>name==='mcpServers'&&generic?genericMCPChecked(item.id,selected):(selected||[]).includes(item.id)).length;const empty=name==='mcpServers'?(generic?'通用模板绑定市场别名（如 github），运行时落到当前项目已安装的 MCP':'这个项目或你的个人范围还没有 MCP，先到「MCP 管理」里添加'):name==='rules'?'这个项目还没有可用规则，先到「规则管理」里添加或共享':name==='skills'?'这个项目还没有可用技能，先到「技能管理」里添加或共享':'这个项目还没有此类配置，先到「环境资产」里添加';return `<div class="as-asset-col"><div class="as-asset-col-head"><b>${title}</b><span>${sub}${picked?` · 已选 ${picked}`:''}</span></div><div class="as-asset-search"><span>⌕</span><input type="search" data-asset-filter="${name}" placeholder="搜索名称…"></div><div class="as-asset-list" data-asset-list="${name}">${vis.map(x=>`<label class="as-asset-item"><input type="checkbox" name="${name}" value="${escapeHTML(x.id)}" ${(name==='mcpServers'&&generic?genericMCPChecked(x.id,selected):(selected||[]).includes(x.id))?'checked':''}><div><b>${escapeHTML(x.name)}</b><small>${escapeHTML(x.description||x.id)}${x.shared&&x.projectId!==state.projectFilter?' · 共享':''}</small></div></label>`).join('')||`<div class="as-empty">${empty}</div>`}</div></div>`};
+  const col=(title,sub,name,items,selected)=>{const vis=name==='mcpServers'?(generic?(items||[]):visibleMCPAssets(items)):(name==='rules'||name==='skills'?(items||[]).filter(item=>catalogVisible(item.projectId,item.shared)):visibleAssets(items));const picked=vis.filter(item=>name==='mcpServers'&&generic?genericMCPChecked(item.id,selected):(selected||[]).includes(item.id)).length;const empty=name==='mcpServers'?(generic?'通用模板绑定市场别名（如 github），运行时落到当前项目已安装的 MCP':'这个项目或你的个人范围还没有 MCP，先到「MCP 管理」里添加'):name==='rules'?'这个项目还没有可用规则，先到「规则管理」里添加或共享':name==='skills'?'这个项目还没有可用技能，先到「技能管理」里添加或共享':'这个项目还没有此类配置，先到「沙箱管理」里添加';return `<div class="as-asset-col"><div class="as-asset-col-head"><b>${title}</b><span>${sub}${picked?` · 已选 ${picked}`:''}</span></div><div class="as-asset-search"><span>⌕</span><input type="search" data-asset-filter="${name}" placeholder="搜索名称…"></div><div class="as-asset-list" data-asset-list="${name}">${vis.map(x=>`<label class="as-asset-item"><input type="checkbox" name="${name}" value="${escapeHTML(x.id)}" ${(name==='mcpServers'&&generic?genericMCPChecked(x.id,selected):(selected||[]).includes(x.id))?'checked':''}><div><b>${escapeHTML(x.name)}</b><small>${escapeHTML(x.description||x.id)}${x.shared&&x.projectId!==state.projectFilter?' · 共享':''}</small></div></label>`).join('')||`<div class="as-empty">${empty}</div>`}</div></div>`};
   host.innerHTML=`<section class="as-section-block as-platform-mcp-section"><div class="as-section-head"><b>平台能力</b><small>独立开关，不占用 MCP 列表</small></div><label class="as-switch-row"><span><b>接入平台 MCP（LoopForge）</b><small>开启后，这个角色运行时通过平台 MCP（agentflow-platform）直接调用平台侧功能：需求、任务、运行、项目等平台操作。</small></span><input type="checkbox" name="platformMcp" ${d.platformMcp?'checked':''} role="switch"></label><label class="as-switch-row"><span><b>接入团队知识库</b><small>开启后，这个角色运行时可只读检索团队知识库（agentflow-knowledge），并自动附带「知识库使用规范」规则；产出的 knowledge.md 会进入知识沉淀审核队列。</small></span><input type="checkbox" name="knowledgeBase" ${d.knowledgeBase?'checked':''} role="switch"></label></section><div class="as-assets">${col('必须遵守','规则','rules',state.data.rules,d.rules)}${col('怎么干活','技能','skills',state.data.skills,d.skills)}${col('外部工具','MCP','mcpServers',generic?genericTemplateMCPOptions(d.mcpServers):state.data.mcpServers,d.mcpServers)}</div><section class="as-section-block as-hook-section"><div class="as-section-head"><b>运行时 Hook</b><small>在工具调用前后插一段脚本，比如拦危险命令。一般可以先不配。</small></div><div id="agentHookPanel"></div></section>`;
   host.querySelectorAll('[data-asset-filter]').forEach(input=>input.oninput=()=>{const q=input.value.trim().toLowerCase();input.closest('.as-asset-col').querySelectorAll('.as-asset-item').forEach(row=>row.hidden=!!q&&!row.textContent.toLowerCase().includes(q))});
   host.querySelectorAll('input[type=checkbox]').forEach(el=>el.onchange=()=>{renderAgentSummary();dirty()});
@@ -1053,8 +1053,7 @@ function renderProperties(){
     const scriptPreview=scriptLines?`<div class="script-snippet-preview" id="previewScriptNodeEditor" title="点击在代码编辑器中修改"><code>${escapeHTML(n.script.slice(0, 120))}${n.script.length>120?'…':''}</code></div>`:'';
     const scriptPane=n.type==='script'?`<div class="fd-row2"><div class="fd-field"><label>脚本语言</label><select class="select" data-p="scriptLanguage"><option value="shell" ${n.scriptLanguage!=='python'?'selected':''}>Shell</option><option value="python" ${n.scriptLanguage==='python'?'selected':''}>Python</option></select></div><div class="fd-field"><label>执行范围</label><select class="select" data-p="executionScope"><option value="run" ${n.executionScope!=='repositories'?'selected':''}>Run 工作区</option><option value="repositories" ${n.executionScope==='repositories'?'selected':''}>每个代码仓库</option></select></div></div><div class="fd-field"><label>脚本内容</label><button type="button" class="script-editor-launch-btn btn-open-code-editor" id="openScriptNodeEditor"><span>${flowPalette.icon('code',14)} 打开代码编辑器编写脚本</span><span class="script-btn-badge">${scriptCountText}</span></button>${scriptPreview}<p class="prop-hint">逐仓库执行时会自动进入每个仓库根目录，无需手写 cd。</p></div>`:'';
     const approvalPane=n.type==='approval'?`<div class="fd-field"><label>需要确认什么（可选）</label><textarea class="input" rows="4" data-p="taskPrompt" placeholder="例如：检查 MR 的改动范围和测试结果，确认可以上线">${escapeHTML(n.taskPrompt||'')}</textarea><p class="prop-hint">确认步骤会停在「待我确认」，批准后才继续；这段说明会和上下游一起展示给确认人。</p></div>`:'';
-    const jenkinsPane=n.type==='jenkins'?`<div class="fd-field"><label>项目 Job 绑定</label><select class="select" data-p="jenkinsBindingId" aria-label="项目 Job 绑定"><option value="">选择项目绑定</option></select><p class="prop-hint" data-jenkins-status>Jenkins 接单后继续。若触发失败，请先核对 Jenkins 队列，再手动重试。</p></div>`:'';
-    const main=`<section class="fd-sec"><div class="fd-sec-h"><span class="fd-sec-t">主配置</span></div><div class="fd-sec-b">${n.type==='agent'?agentBindCard(n):''}${sopSelect}${scriptPane}${approvalPane}${jenkinsPane}</div></section>`;
+    const main=`<section class="fd-sec"><div class="fd-sec-h"><span class="fd-sec-t">主配置</span></div><div class="fd-sec-b">${n.type==='agent'?agentBindCard(n):''}${sopSelect}${scriptPane}${approvalPane}</div></section>`;
     const gates=n.type==='agent'?flowFold('gates','校验顺序',`${effectiveNodeArtifacts(n,workflowAgent(n.agentId)).length} 产物 · ${roleGates(workflowAgent(n.agentId)).length} 门禁`,nodeGatePane(n),false):'';
     const wantReject=state.flowWantReject??(n.onFailure==='reject');
     const targets=state.workflow.nodes.filter(x=>x.id!==n.id).map(x=>`<option value="${escapeHTML(x.id)}" ${x.id===n.rejectTo?'selected':''}>${escapeHTML(x.name)}</option>`).join('');
@@ -1063,8 +1062,6 @@ function renderProperties(){
     const adv=flowFold('adv','高级','重试 · 返工 · 统计',`<div class="fd-row2"><div class="fd-field"><label>单轮最多试几次</label><input class="input" type="number" min="1" max="9" data-p="maxAttempts" value="${n.maxAttempts||1}"></div><div class="fd-field"><label>最多返工几轮</label><input class="input" type="number" min="1" max="20" data-p="maxReworks" value="${n.maxReworks||3}"></div></div><div class="fd-field"><label>返工策略</label><select class="select" data-p="retryStrategy"><option value="targeted_fix" ${n.retryStrategy!=='full_redo'?'selected':''}>只修失败项</option><option value="full_redo" ${n.retryStrategy==='full_redo'?'selected':''}>整步重做</option></select></div>${n.type==='script'?`<label class="fd-check"><input type="checkbox" data-p="runOnWorkspaceRebuild" ${n.runOnWorkspaceRebuild?'checked':''}><span>工作区重建时先执行（脚本需可重复执行）</span></label>`:''}${metric}`,false);
     host.innerHTML=`${flowDrawerHead(n,kind,FLOW_NODE_TYPES[kind].label)}<div class="fd-db">${main}${gates}${fail}${adv}</div><div class="fd-df"><span class="fd-df-hint"><kbd>F2</kbd> 重命名 · <kbd>⌘D</kbd> 复制 · <kbd>Del</kbd> 删除 · <kbd>⌘Z</kbd> 撤销</span></div>`;
     bindNodeProperties(host,n);
-    const jenkinsSelect=host.querySelector('[data-p="jenkinsBindingId"]');
-    if(jenkinsSelect)loadJenkinsNodeBindings(jenkinsSelect,n);
   }
   host.querySelector('#closeNodeDrawer')?.addEventListener('click',closeNodeDrawer);
   const del=host.querySelector('#deletePropertyNode');if(del)del.onclick=()=>removeNode(n.id);
@@ -1157,8 +1154,7 @@ function sopSandboxChoices(){
   return (state.data.sandboxes||[]).filter(s=>s.id&&catalogVisible(s.projectId,s.shared));
 }
 function defaultSOPSandbox(choices=sopSandboxChoices(),preferredId){
-  const isolated=choices.filter(s=>sandboxDriverOption(s.driver)!=='local');
-  return isolated.find(s=>s.id===preferredId)||isolated.find(s=>catalogOwned(s.projectId))||isolated[0];
+  return choices.find(s=>s.id===preferredId)||choices.find(s=>catalogOwned(s.projectId))||choices[0];
 }
 function syncSOPSandboxSelection(){
   const select=$('#sopCreateSandbox'),template=(state.data.workflows||[]).find(w=>w.id===state.sopTemplate);

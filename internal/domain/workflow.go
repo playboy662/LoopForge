@@ -47,13 +47,12 @@ type WorkflowNode struct {
 	PlanItemID   string   `json:"planItemId,omitempty"`
 	ID           string   `json:"id"`
 	Name         string   `json:"name"`
-	Type         string   `json:"type"` // agent, script, approval, sop, jenkins
+	Type         string   `json:"type"` // agent, script, approval, sop
 	// MetricStage explicitly assigns this node's execution time to a Loop phase.
 	// Empty means a legacy workflow without a classification; "none" opts out.
-	MetricStage      string `json:"metricStage,omitempty"` // clarification, development, testing, none
-	AgentID          string `json:"agentId,omitempty"`
-	ExecutorID       string `json:"executorId,omitempty"`
-	JenkinsBindingID string `json:"jenkinsBindingId,omitempty"`
+	MetricStage string `json:"metricStage,omitempty"` // clarification, development, testing, none
+	AgentID     string `json:"agentId,omitempty"`
+	ExecutorID  string `json:"executorId,omitempty"`
 	// SOPWorkflowID is the referenced workflow when Type is "sop".
 	SOPWorkflowID string `json:"sopWorkflowId,omitempty"`
 	// RunOnWorkspaceRebuild replays this script when restoring an already-used environment.
@@ -166,6 +165,8 @@ type WorkflowDefinition struct {
 	Tags              []string              `json:"tags,omitempty"`
 	Description       string                `json:"description"`
 	SandboxProfileID  string                `json:"sandboxProfileId"`
+
+	ProjectCredentialIDs []string `json:"projectCredentialIds,omitempty"`
 	// MetricCategory 是受控的统计标签（需求开发/Bug 修复/…），用于交付指标归类。
 	// Run 创建时随 WorkflowSnapshot 冻结，历史执行不受后续编辑影响。
 	MetricCategory string `json:"metricCategory,omitempty"`
@@ -189,7 +190,6 @@ type WorkflowDefinition struct {
 	// that inherit the responsible user's executor. An empty entry defers
 	// selection until the role starts on the bound machine.
 	ExecutorDefaults map[string]AssistantDefaults `json:"executorDefaults,omitempty"`
-	JenkinsTargets   map[string]string            `json:"jenkinsTargets,omitempty"` // Run snapshot only.
 }
 
 // UnmarshalJSON migrates the pre-workflow-sandbox shape while the legacy node

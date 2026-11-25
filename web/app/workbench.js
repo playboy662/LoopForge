@@ -239,10 +239,10 @@ function credentialCatalogDetailHTML(mode,kind,protocol){
   const copy=credentialCatalogCopy(mode,kind);
   return mode!=='remote'?escapeHTML(copy.detail):`目录为空时，AI 对话列出 Base URL 的 <code data-catalog-endpoint>${escapeHTML(credentialModelsEndpoint(kind,protocol))}</code> 返回的模型。`;
 }
-function credentialCatalogHTML(kind,user,{runnerLogin=false,label='模型目录'}={}){
+function credentialCatalogHTML(kind,user,{runnerLogin=false,label='模型目录',savedModels=credentialValue(user,kind.models.name)}={}){
   const baseUrl=credentialValue(user,kind.baseURL||(kind.extra?.url?kind.extra.name:'')),protocol=credentialProtocol(kind,user);
   const cursorAutomatic=kind.agentCli==='cursor'&&!user?.agentCliCredentials?.cursor?.modelsCustomized;
-  const models=credentialCatalogModels(cursorAutomatic?[]:credentialValue(user,kind.models.name)),empty=!models.length;
+  const models=credentialCatalogModels(cursorAutomatic?[]:savedModels),empty=!models.length;
   const mode=runnerLogin?'runner':!String(baseUrl||'').trim()?'official':'remote';
   const copy=credentialCatalogCopy(mode,kind);
   return `<section class="credential-catalog" data-credential-catalog data-catalog-engine="${escapeHTML(kind.models.engine)}" data-catalog-mode="${mode}" data-catalog-protocol="${escapeHTML(protocol)}" data-original-key="${escapeHTML(credentialCatalogKey(models))}" data-catalog-source="${escapeHTML(credentialCatalogSource(baseUrl))}" aria-label="模型目录">
@@ -755,7 +755,6 @@ const GIT_ADD_OPTIONS=[
   {id:'gitlab',name:'GitLab',logo:'gitlab',monochrome:true},
   {id:'github',name:'GitHub Enterprise',logo:'github',monochrome:true},
   {id:'other',name:'其他 Git',icon:'globe'},
-  {id:'gitPlainHttpCredentials',name:'Git HTTP',icon:'lock'},
   {id:'gitSshKey',name:'Git SSH',icon:'key'},
 ];
 function credentialOptionHTML({id,name,logo,monochrome,icon},selected){
@@ -807,13 +806,11 @@ function credentialPanelHTML(user){
 function credentialGitRowsHTML(http,ssh,showGitHub){
   return [...http.filter(item=>item.host!=='github.com'||!showGitHub).map(item=>({...item,kind:'http'})),...ssh.map(item=>({...item,kind:'ssh'}))].map(item=>{
     const isSSH=item.kind==='ssh';
-    const plain=!isSSH&&item.host.startsWith('http://');
-    const platformId=isSSH?'gitSshKey':plain?'gitPlainHttpCredentials':item.platform;
-    const platform=GIT_ADD_OPTIONS.find(type=>type.id===platformId)||GIT_ADD_OPTIONS.find(type=>type.id==='other');
-    const endpoint=plain?item.host:`${isSSH?'ssh':'https'}://${item.host}`;
+    const platform=GIT_ADD_OPTIONS.find(type=>type.id===(isSSH?'gitSshKey':item.platform))||GIT_ADD_OPTIONS.find(type=>type.id==='other');
+    const endpoint=item.host.startsWith('http://')?item.host:`${isSSH?'ssh':'https'}://${item.host}`;
     return `<div class="credential-row"><div class="credential-row-main">
       ${credentialLogo(platform)}<div class="credential-row-who"><b>${escapeHTML(item.name)}</b><small><span>${platform.name} · ${escapeHTML(endpoint)}</span></small></div>
-      <div class="credential-row-end"><button type="button" class="credential-btn ghost credential-row-link" aria-haspopup="dialog" data-credential-git-kind="${plain?'plain-http':item.kind}" data-credential-git-id="${escapeHTML(item.id)}">${item.managed?'查看':'编辑'}${credentialGlyph('chevron-right',14)}</button></div>
+      <div class="credential-row-end"><button type="button" class="credential-btn ghost credential-row-link" aria-haspopup="dialog" data-credential-git-kind="${item.kind}" data-credential-git-id="${escapeHTML(item.id)}">${item.managed?'查看':'编辑'}${credentialGlyph('chevron-right',14)}</button></div>
     </div></div>`;
   }).join('');
 }
@@ -1103,7 +1100,14 @@ function storeCredentialUser(saved){
   const users=state.data.users||(state.data.users=[]),index=users.findIndex(u=>Number(u.id)===Number(saved.id));
   if(index>=0)users[index]=saved;else users.push(saved);
 }
-function notifyCredentialsChanged(){$('#chatNextFrame')?.contentWindow?.postMessage({type:'agentflow-credentials-changed'},location.origin)}
+function notifyCredentialsChanged(){
+  $('#chatNextFrame')?.contentWindow?.postMessage({type:'agentflow-credentials-changed'},location.origin);
+  if(typeof window!=='undefined'){
+    window.AgentFlowAssistantModels?.load?.({refresh:true})?.then(()=>{
+      if(typeof renderAssistantSettings==='function'&&typeof document!=='undefined'&&document.querySelector('#assistantView.active'))renderAssistantSettings();
+    }).catch(()=>{});
+  }
+}
 async function saveCredential(key,values={},options={}){
   const user=state.currentUser,kind=credentialKind(key);
   let saved;
@@ -1231,11 +1235,7 @@ function bindCredentialPanel(panel){
   panel.onclick=event=>{
     const target=event.target;
     const git=target.closest('[data-credential-git-kind]');
-    if(git){
-      const {credentialGitKind:kind,credentialGitId:id}=git.dataset;
-      if(kind==='ssh')return openGitSSHKeys('',{id});
-      return openGitHTTPCredentials({id,plain:kind==='plain-http'});
-    }
+    if(git)return git.dataset.credentialGitKind==='ssh'?openGitSSHKeys('',{id:git.dataset.credentialGitId}):openGitHTTPCredentials({id:git.dataset.credentialGitId});
     const eye=target.closest('[data-credential-eye]');if(eye)return toggleCredentialSecret(eye);
     const row=target.closest('[data-credential-row]');if(!row)return;
     const catalogAction=target.closest('[data-catalog-act]');
@@ -1254,7 +1254,6 @@ function bindCredentialPanel(panel){
       select.focus();
       if(select.dataset.credentialAddMenu==='model'||key==='gitToken')openCredentialWizard(key);
       else if(key==='gitSshKey')openGitSSHKeys('',{add:true});
-      else if(key==='gitPlainHttpCredentials')openGitHTTPCredentials({plain:true,add:true});
       else if(key)openGitHTTPCredentials({platform:key,add:true});
       return;
     }
@@ -1683,8 +1682,7 @@ const PLATFORM_TABS=[
   {id:'accounts',zh:'成员账号',en:'Accounts'},
   {id:'admins',zh:'平台管理员',en:'Admins'},
   {id:'sharedKey',zh:'共享 CodeBuddy Key',en:'Shared CodeBuddy Key'},
-  {id:'sshTrust',zh:'Git SSH 主机信任',en:'Git SSH Host Trust'},
-  {id:'jenkins',zh:'Jenkins 连接',en:'Jenkins connections'},
+  {id:'gitHostTrust',zh:'Git 主机信任',en:'Git Host Trust'},
 ];
 function platformTabsHTML(active){
   return `<div class="pa-tabs-wrap platform-tabs-wrap"><div class="pa-tabs platform-tabs" id="platformTabs" role="tablist" aria-label="平台管理分区">${PLATFORM_TABS.map(t=>{
@@ -1701,7 +1699,6 @@ function setPlatformTab(host,tab){
   state.platformTab=tab;
   host.querySelectorAll('[data-platform-tab]').forEach(b=>{const on=b.dataset.platformTab===tab;b.classList.toggle('on',on);b.setAttribute('aria-selected',String(on));b.tabIndex=on?0:-1});
   host.querySelectorAll('[data-platform-panel]').forEach(p=>{p.hidden=p.dataset.platformPanel!==tab});
-  if(tab==='jenkins')loadPlatformJenkins(host);
 }
 function bindPlatformTabs(host){
   const bar=host.querySelector('#platformTabs');if(!bar)return;
@@ -1854,14 +1851,14 @@ function renderPlatformAdminPanel(){
     </div>
     `)}
     ${platformTabPanel('sharedKey',tab,platformSharedKeyHTML())}
-    ${platformTabPanel('sshTrust',tab,platformSSHHostTrustHTML())}
-    ${platformTabPanel('jenkins',tab,platformJenkinsHTML())}
+    ${platformTabPanel('gitHostTrust',tab,platformSSHHostTrustHTML()+platformHTTPSHostTrustHTML()+platformHTTPHostTrustHTML())}
   `;
   bindPlatformTabs(host);
   loadPlatformAccounts(host);
   loadPlatformSharedKey(host);
   loadPlatformSSHHosts(host);
-  if(tab==='jenkins')loadPlatformJenkins(host);
+  loadPlatformHTTPSHosts(host);
+  loadPlatformHTTPHosts(host);
   loadPlatformAdmins(host);
 }
 

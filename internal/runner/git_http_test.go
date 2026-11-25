@@ -13,6 +13,7 @@ import (
 
 	"agentflow/internal/domain"
 	"agentflow/internal/gitwork"
+	"agentflow/internal/repo"
 	"agentflow/internal/runtime"
 )
 
@@ -20,7 +21,10 @@ func TestMain(m *testing.M) {
 	if runtime.RunMCPCallCLI(os.Args[1:]) || runtime.RunGitHelperCLI(os.Args[1:]) {
 		return
 	}
-	os.Exit(m.Run())
+	cleanup := repo.UseSandboxVisibleTempDir()
+	code := m.Run()
+	cleanup()
+	os.Exit(code)
 }
 
 func TestRunnerPlainHTTPGitCloneFetchAndPush(t *testing.T) {

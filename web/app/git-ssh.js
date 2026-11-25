@@ -38,23 +38,60 @@ globalThis.LoopForgeGitSSH = function parseSSHRepository(raw) {
   return { provider: 'ssh', host: endpoint, project: `${host.toLowerCase()}${port === '22' ? '' : ':' + port}/${segments.join('/')}`, name, cloneUrl, webUrl: '' };
 };
 
-// Generic HTTP(S) remotes use Git transport without a hosting API adapter.
-globalThis.LoopForgeGitHTTPS = function parseHTTPSRepository(raw) {
+// Use the URL parser to compress IPv6 and omit the HTTPS default port.
+globalThis.LoopForgeGitHTTPSHost = function normalizeHTTPSHost(raw) {
+  const input = String(raw || '').trim().toLowerCase();
+  let authority = input.replace(/^https:\/\//, '').replace(/\/$/, '');
+  if (!authority || /[\/@?#*%\s\\]/.test(authority)) return '';
+  if (!input.startsWith('https://') && !authority.startsWith('[') && authority.split(':').length > 2) {
+    authority = `[${authority}]`;
+  }
+  try {
+    const url = new URL(`https://${authority}`);
+    const hostname = url.hostname;
+    if (hostname.startsWith('[')) {
+      return /^\[::ffff:[a-f0-9]+:[a-f0-9]+\]$/.test(hostname) ? '' : url.host;
+    }
+    if (!/^[a-z0-9][a-z0-9.-]*$/.test(hostname) || hostname.includes('..') || /^\d+(?:\.\d+){3}$/.test(hostname)) return '';
+    return url.host;
+  } catch {
+    return '';
+  }
+};
+
+// A pasted clone command explicitly selects plaintext transport.
+globalThis.LoopForgeExplicitHTTPClone = function isHTTPCloneCommand(raw) {
+  const input = String(raw || '').trim();
+  return input.startsWith('git clone ') && /^http:\/\//i.test(input.slice('git clone '.length).trimStart());
+};
+
+// Keep the stored transport when displaying a repository in an editable field.
+globalThis.LoopForgeGitRepositoryReference = function gitRepositoryReference(repository) {
+  if (repository?.provider === 'http' && repository.cloneUrl) return `git clone ${repository.cloneUrl}`;
+  if (repository?.provider === 'ssh') return repository.cloneUrl || '';
+  return repository?.webUrl || repository?.cloneUrl || repository?.gongfengProjectId || '';
+};
+
+// Generic HTTP(S) hosts use Git transport without a hosting API.
+globalThis.LoopForgeGitHTTPRepository = function parseHTTPRepository(raw) {
   const address=String(raw||'').trim().replace(/^git clone\s+/i,'');
   if(!/^https?:\/\//i.test(address)||/[\s\\]/.test(address))return null;
   try{
     const u=new URL(address),plain=u.protocol==='http:';
-    const endpoint=plain?address.match(/^http:\/\/([a-z0-9.-]+):([1-9][0-9]*)(\/[^?#]*)$/i):null;
-    if(plain&&(!endpoint||endpoint[1].toLowerCase()!==u.hostname||Number(endpoint[2])>65535))return null;
-    const host=plain?`${u.hostname}:${endpoint[2]}`:u.host.toLowerCase();
-    if(u.username||u.password||/[?#]/.test(address)||(!plain&&['github.com','git.example.com'].includes(u.hostname.toLowerCase())))return null;
-    if(!/^[a-z0-9][a-z0-9.-]*(?::[0-9]+)?$/i.test(host)||u.hostname.includes('..')||(!plain&&/^\d+(?:\.\d+){3}$/.test(u.hostname)))return null;
-    const parts=(plain?endpoint[3]:u.pathname).replace(/^\/+|\/+$/g,'').split('/');
-    if(parts.some(part=>!part||decodeURIComponent(part).split('/').some(value=>!value||value==='.'||value==='..'||/[\x00-\x1f\x7f]/.test(value))))return null;
+    if(u.username||u.password||u.search||u.hash||u.port==='0')return null;
+    if(!plain&&['github.com','git.example.com'].includes(u.hostname))return null;
+    const rawAuthority=address.replace(/^https?:\/\//i,'').split('/')[0];
+    const ipv4=/^\d+(?:\.\d+){3}$/.test(u.hostname);
+    const validHost=ipv4
+      ? plain && rawAuthority.split(':')[0]===u.hostname
+      : !!globalThis.LoopForgeGitHTTPSHost(`https://${u.host}`);
+    if(!validHost)return null;
+    const parts=u.pathname.replace(/^\/+|\/+$/g,'').split('/');
+    if(parts.some(part=>!part||decodeURIComponent(part)==='.'||decodeURIComponent(part)==='..'))return null;
     const name=parts[parts.length-1].replace(/\.git$/,'');if(!name)return null;
-    const path=parts.join('/');
-    const cloneUrl=u.protocol+'//'+host+'/'+path;
-    return {provider:'https',host,project:host+'/'+parts.join('/').replace(/\.git$/,''),name,cloneUrl,webUrl:cloneUrl.replace(/\.git$/,'')};
+    const cloneUrl=u.origin+'/'+parts.join('/');
+    const host=plain?u.origin:u.host;
+    return {provider:plain?'http':'https',host,project:host+'/'+parts.join('/').replace(/\.git$/,''),name,cloneUrl,webUrl:cloneUrl.replace(/\.git$/,'')};
   }catch{return null}
 };
 

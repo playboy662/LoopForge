@@ -37,7 +37,7 @@ test('Git HTTPS credentials are managed per host with write-only tokens and veri
   const dialog = app.document.querySelector('#gitHTTPCredentialDialog');
   const form = dialog.querySelector('form');
   assert.equal(form.elements.exposeToWorkspace, undefined, 'workspace credentials are always available');
-  assert.match(dialog.textContent, /无法从 Token 推导/);
+  assert.match(dialog.textContent, /Git 认证用户名（选填）/);
   assert.equal(dialog.querySelectorAll('.git-ssh-key-row').length, 2);
   assert.equal(dialog.querySelector('[data-http-cred-edit="managed-internal"]'), null, 'the managed credential is read-only');
   assert.equal(dialog.querySelector('[data-http-cred-delete="managed-internal"]'), null);
@@ -88,66 +88,92 @@ test('Git HTTPS credentials are managed per host with write-only tokens and veri
   assert.equal(app.evaluate('state.currentUser.gitHttpCredentialsConfigured'), true);
 });
 
-test('Git HTTP is added from the menu and managed per saved host', async (t) => {
+test('an authorized IPv6 HTTPS instance needs only a personal token', async (t) => {
   const app = await loadApp();
   t.after(app.close);
   const endpoint = '/api/users/1/git-http-credentials';
-  const secure = { id: 'secure', name: 'Secure Git', platform: 'gitlab', host: 'git.example.org' };
-  const plain = { id: 'plain', name: 'Plain Git', platform: 'gitlab', host: 'http://192.0.2.10:9433' };
-  let credentials = [secure];
-  app.router.get(endpoint, () => credentials);
-  app.router.put(endpoint, ({ body }) => {
-    credentials = [secure, { ...plain, name: body.name, host: body.host, username: body.username }];
-    return credentials;
-  });
-  app.router.delete(`${endpoint}/plain`, () => {
-    credentials = [secure];
-    return credentials;
-  });
+  const instance = { host: '[fd00::2]:8443', platform: 'gitlab' };
+  assert.equal(app.evaluate("LoopForgeGitHTTPSHost('FD00::0443')"), '[fd00::443]');
+  assert.equal(app.evaluate("LoopForgeGitHTTPRepository('https://[FD00:0::2]:8443/team/app.git').host"), instance.host);
+  assert.equal(app.evaluate("LoopForgeGitHTTPRepository('https://[::ffff:10.0.0.1]/team/app.git')"), null);
+  app.router.get('/api/git-https-hosts', [instance]);
+  app.router.get(endpoint, []);
+  app.router.put(endpoint, [{ ...instance, id: 'instance-token', name: instance.host }]);
   app.evaluate(`
-    state.currentUser={...state.data.users[0],id:1,isGuest:false,gitHttpCredentialsConfigured:true};
-    state.data.users=[state.currentUser];
-    renderPersonalSettings();
+    state.currentUser={...state.data.users[0],id:1,isGuest:false};
+    openGitHTTPCredentials({add:true});
   `);
   await settle(6);
 
-  const rows = () => app.document.querySelector('[data-credential-git-rows]');
-  assert.doesNotMatch(rows().textContent, /Git HTTP/);
-  assert.equal(app.document.querySelector('[data-credential-row="gitPlainHttpCredentials"]'), null);
-  const menu = app.document.querySelector('[data-credential-add-menu="platform"]');
-  const option = menu.querySelector('option[value="gitPlainHttpCredentials"]');
-  assert.ok(option);
-  option.selected = true;
-  menu.dispatchEvent(new app.window.Event('change', { bubbles: true }));
-  await settle(6);
-  const activeDialog = () => app.document.querySelector('#gitHTTPCredentialDialog');
-  let dialog = activeDialog();
+  const dialog = app.document.querySelector('#gitHTTPCredentialDialog');
   const form = dialog.querySelector('form');
-  assert.match(dialog.textContent, /Git HTTP 访问令牌/);
-  assert.equal(form.hidden, false);
-  form.elements.host.value = plain.host;
-  form.elements.name.value = plain.name;
-  form.elements.token.value = 'git-http-test-token';
+  const submit = form.querySelector('button[type="submit"]');
+  assert.equal(submit.disabled, true);
+  form.elements.instance.value = instance.host;
+  form.elements.instance.dispatchEvent(new app.window.Event('change', { bubbles: true }));
+  for (const key of ['host', 'platform', 'name', 'username']) {
+    assert.equal(form.elements[key].closest('.credential-field').hidden, true);
+  }
+  assert.equal(submit.disabled, false);
+  form.elements.token.value = 'test-only-token';
   form.dispatchEvent(new app.window.Event('submit', { bubbles: true, cancelable: true }));
   await settle(6);
-  dialog.querySelector('[data-http-cred-close]').click();
-  const edit = rows().querySelector('[data-credential-git-id="plain"]');
-  assert.match(edit.closest('.credential-row').textContent, /Plain Git\s*Git HTTP · http:\/\/192\.0\.2\.10:9433/);
-  edit.click();
+  const save = app.router.calls.find(call => call.method === 'PUT' && call.path === endpoint);
+  assert.deepEqual(save.body, { ...instance, name: instance.host, token: 'test-only-token' });
+  assert.equal(form.hidden, true);
+  assert.equal(form.elements.token.value, '');
+});
+
+test('generic HTTP credentials select the authorized endpoint and check a repository URL', async (t) => {
+  const app = await loadApp();
+  t.after(app.close);
+  const endpoint = '/api/users/1/git-http-credentials';
+  const instance = {host:'http://192.0.2.13:8080', platform:'other'};
+  const remote = instance.host + '/team/app.git';
+  assert.equal(app.evaluate(`LoopForgeGitHTTPRepository(${JSON.stringify(remote)}).host`), instance.host);
+  assert.equal(app.evaluate("parseGongfengRepoURL('http://github.com/team/app.git').provider"), 'github');
+  assert.equal(app.evaluate("parseGongfengRepoURL('git clone http://github.com/team/app.git').provider"), 'http');
+  assert.equal(app.evaluate("LoopForgeGitHTTPRepository('http://0x7f000001/team/app.git')"), null);
+  app.router.get('/api/git-http-hosts', [instance]);
+  app.router.get(endpoint, []);
+  app.router.put(endpoint, [{...instance, id:'plain-token', name:'HTTP instance', username:'git-user'}]);
+  app.router.post(`${endpoint}/plain-token/verify`, {valid:false, repositoryReadable:true});
+  app.evaluate(`
+    state.currentUser={...state.data.users[0],id:1,isGuest:false};
+    openGitHTTPCredentials({add:true});
+  `);
   await settle(6);
-  dialog = activeDialog();
-  assert.equal(dialog.querySelector('form').elements.host.value, plain.host);
-  assert.equal(dialog.querySelector('form').elements.host.readOnly, true);
-  assert.equal(dialog.querySelector('form').elements.token.value, '');
-  assert.doesNotMatch(dialog.textContent, /Secure Git/);
-  dialog.querySelector('[data-http-cred-delete="plain"]').click();
-  dialog.querySelector('[data-http-cred-remove="plain"]').click();
+  const dialog = app.document.querySelector('#gitHTTPCredentialDialog');
+  const form = dialog.querySelector('form');
+  form.elements.instance.value = instance.host;
+  form.elements.instance.dispatchEvent(new app.window.Event('change', {bubbles:true}));
+  assert.equal(form.elements.username.closest('.credential-field').hidden, false);
+  form.elements.username.value = 'git-user';
+  form.elements.token.value = 'fixture-token';
+  form.dispatchEvent(new app.window.Event('submit', {bubbles:true, cancelable:true}));
   await settle(6);
-  assert.equal(rows().querySelector('[data-credential-git-id="plain"]'), null);
-  assert.ok(rows().querySelector('[data-credential-git-id="secure"]'));
-  assert.equal(app.document.querySelector('[data-credential-row="gitPlainHttpCredentials"]'), null);
-  assert.equal(app.evaluate(`parseGongfengRepoURL('http://192.0.2.10:9433/team/code')?.cloneUrl`),
-    'http://192.0.2.10:9433/team/code');
-  assert.equal(app.evaluate(`parseGongfengRepoURL('http://git.example.com/team/code.git')`), null);
-  assert.equal(app.evaluate(`parseGongfengRepoURL('http://192.0.2.10:9433/team/../code.git')`), null);
+  assert.deepEqual(app.router.calls.find(call => call.method === 'PUT' && call.path === endpoint).body,
+    {...instance, name:instance.host, username:'git-user', token:'fixture-token'});
+  const row = app.evaluate(`credentialGitRowsHTML([${JSON.stringify({...instance,id:'plain-token',name:'HTTP instance'})}], [], false)`);
+  assert.match(row, / · http:\/\/192\.0\.2\.13:8080/);
+
+  const verify = dialog.querySelector('[data-http-cred-verify="plain-token"]');
+  const repoCheck = dialog.querySelector('[data-http-repo-check]');
+  const repoUrl = repoCheck.elements.repoUrl;
+  verify.click();
+  assert.equal(repoCheck.hidden, false);
+  assert.equal(app.document.activeElement, repoUrl, 'the native credential dialog owns the focused URL field');
+  repoCheck.querySelector('[data-http-repo-check-cancel]').click();
+  assert.equal(repoCheck.hidden, true);
+  assert.equal(app.document.activeElement, verify);
+  assert.equal(app.router.calls.some(call => call.path === `${endpoint}/plain-token/verify`), false);
+
+  verify.click();
+  repoUrl.value = remote;
+  repoCheck.querySelector('button[type="submit"]').click();
+  await settle(6);
+  assert.equal(dialog.open, true);
+  assert.equal(repoCheck.hidden, true);
+  assert.deepEqual(app.router.calls.find(call => call.path === `${endpoint}/plain-token/verify`).body, {repoUrl:remote});
+  assert.match(dialog.querySelector('.git-ssh-status').textContent, /仓库可读/);
 });
