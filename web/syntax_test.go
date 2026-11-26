@@ -840,11 +840,15 @@ global.state = {data: {executors: [
   {id: 'zcode', name: 'ZCode'},
   {id: 'mock', name: '演示执行器'}
 ]}};
+global.window = {AgentFlowExecutorModels: Object.fromEntries(
+  state.data.executors.slice(1, -1).map(({id}) => [id, {configured: true}])
+)};
 eval(code.slice(code.indexOf('function executorOptions('), code.indexOf('function selectAgent(')));
 for (const id of ['opencode', 'cursor', 'agy', 'kimi', 'pi', 'dsh', 'zcode']) {
   assert.ok(executorOptions(id).includes('value="' + id + '" selected'), id);
 }
 assert.ok(!executorOptions('codex').includes('value="mock"'));
+assert.ok(!executorOptions('codex').includes('value="codebuddy"'));
 const legacy = executorOptions('legacy-codex');
 assert.ok(legacy.includes('历史执行器 legacy-codex'));
 assert.ok(legacy.includes('value="legacy-codex" selected disabled'));
@@ -1105,8 +1109,17 @@ func TestRequirementDirectCreateUI(t *testing.T) {
 			t.Fatalf("requirement composer behavior is missing %q", want)
 		}
 	}
+	composerJS, err := os.ReadFile("app/composer.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, gone := range []string{`查看完整度详情`, `准入线`, `没有固定轮数`} {
+		if strings.Contains(composer, gone) || strings.Contains(string(composerJS), gone) {
+			t.Fatalf("requirement composer must not keep %q", gone)
+		}
+	}
 	for _, gone := range []string{
-		`查看完整度详情`, `准入线`, `composerAssessmentView`, `invalidateRequirementAnalysis`, `没有固定轮数`, `composerCreateReady`, `setComposerRetryMode`, `composerClarifyRetry`, `state.reqCreateMode`, `createIssueDirect`, `setChatCreateEnabled`, `syncReqComposerLayout`,
+		`composerAssessmentView`, `invalidateRequirementAnalysis`, `composerCreateReady`, `setComposerRetryMode`, `composerClarifyRetry`, `state.reqCreateMode`, `createIssueDirect`, `setChatCreateEnabled`, `syncReqComposerLayout`,
 		`function goReqStep(`, `function startReqClarify(`, `function sendChatClarify(`, `function pickReqOption(`, `function submitReqAnswers(`, `function reclarifyRequirement(`, `'/api/chat-clarify'`,
 	} {
 		if strings.Contains(code, gone) {
@@ -2362,6 +2375,7 @@ const code = require('node:fs').readFileSync('` + appBundlePath(t) + `', 'utf8')
 const escapeHTML = value => String(value??'').replace(/[&<>'"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));
 const isScriptWorkflowNode = node => node?.type==='script'||node?.type==='command';
 const cachedRun = () => null;
+const state = {authRequired:false, currentUser:null, data:{projects:[], issues:[]}};
 eval(code.slice(code.indexOf('function turnsExhausted('), code.indexOf('function failedNodeId(')));
 eval(code.slice(code.indexOf('function approvalCalloutHTML('), code.indexOf('async function retryWaitingNode(')));
 const node = {id:'summary', name:'交付汇总', type:'agent'};
@@ -2391,6 +2405,42 @@ assert.match(callout, /等待人工确认/);
 const bare = humanDecisionPanelHTML('run-1','summary',{status:'waiting_approval'},node,[node]);
 assert.match(bare, /判断依据/);
 assert.match(bare, /门禁未通过。请看产物和日志后决定。/);
+// Decision controls follow the server's run write guard (projectMemberWrites).
+state.authRequired = true;
+state.currentUser = {id:7, isPlatformAdmin:false};
+state.data.projects = [
+  {id:'mine', ownerId:7, members:[]},
+  {id:'team', ownerId:1, members:[{userId:7, role:'member'}]},
+  {id:'watch', ownerId:1, members:[{userId:7, role:'Viewer '}]},
+  {id:'other', ownerId:1, members:[{userId:2, role:'member'}]},
+  {id:'open', ownerId:0, members:[]},
+];
+state.data.issues = [{id:'iss-watch', projectId:'watch'}, {id:'iss-team', projectId:'team'}];
+const runIn = (projectId, issueId) => ({id:'run-x', status:'waiting', executionContext:{projectId, issueId}});
+const decide = run => humanDecisionPanelHTML('run-x','summary',nr,node,[node],run);
+for (const [label, run] of [
+  ['owner', runIn('mine')],
+  ['member', runIn('team')],
+  ['project without owner or members', runIn('open')],
+  ['project this client cannot see', runIn('hidden')],
+  ['run without a project', runIn('')],
+  ['requirement project fallback', runIn('', 'iss-team')],
+]) {
+  assert.equal(canDecideRun(run), true, label);
+  assert.match(decide(run), /确认通过，继续下游/, label);
+}
+assert.equal(canDecideRun(runIn('watch')), false);
+assert.match(decide(runIn('watch')), /你是该项目的只读成员/);
+assert.doesNotMatch(decide(runIn('watch')), /确认通过/);
+assert.equal(canDecideRun(runIn('', 'iss-watch')), false, 'requirement project fallback applies to viewers');
+assert.equal(canDecideRun(runIn('other')), false);
+assert.match(decide(runIn('other')), /你不是该项目的成员/);
+state.currentUser = {id:7, isPlatformAdmin:true};
+assert.equal(canDecideRun(runIn('watch')), true, 'platform admin');
+state.currentUser = {id:0, isGuest:true};
+assert.match(decide(runIn('open')), /登录后才能审批/);
+state.authRequired = false;
+assert.equal(canDecideRun(runIn('watch')), true, 'auth disabled');
 `
 	out, err := exec.Command(node, "-e", script).CombinedOutput()
 	if err != nil {

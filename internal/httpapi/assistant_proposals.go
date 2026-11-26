@@ -91,8 +91,13 @@ func assistantProposalTarget(d assistantDraft) string {
 	}
 	var body struct {
 		WorkflowID string `json:"workflowId"`
+		SOPMode    string `json:"sopMode"`
 	}
 	_ = json.Unmarshal(d.Body, &body)
+	// A requirement that opts out of SOP drops its workflowId on save.
+	if (domain.Issue{SOPMode: body.SOPMode}).WithoutSOP() {
+		return ""
+	}
 	return strings.TrimSpace(body.WorkflowID)
 }
 
@@ -414,6 +419,8 @@ func (h *assistantHandlers) decideProposal(c *gin.Context) {
 	next := existing
 	next.Messages = append([]assistantMessage(nil), existing.Messages...)
 	next.Messages[body.MessageIndex].Content = jsonObject(content)
+	// Recording a decision never renames; keep a title saved since the read.
+	next.TitleEdited = false
 	var saveErr error
 	if shared {
 		saveErr = h.repo.PutSharedAssistantReceipt(ownerID, next, existing)

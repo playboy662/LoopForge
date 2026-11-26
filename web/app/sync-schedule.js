@@ -36,7 +36,12 @@ function renderSync(){
   const diagText=diag.join('；');
   $('#syncPanelSummary').innerHTML=`<span class="sync-stat"><b>${githubCount}</b>GitHub</span>${gfCount?`<span class="sync-stat"><b>${gfCount}</b>工蜂</span>`:''}${tapdCount?`<span class="sync-stat"><b>${tapdCount}</b>TAPD</span>`:''}<span class="sync-stat">最近：${lastSync}</span>${latestBySource.map(l=>`<span class="sync-stat ${l.status==='failed'?'danger':'success'}"><b>${l.status==='failed'?'!':'✓'}</b>${l.source==='github'?'GitHub':l.source==='gongfeng'?'工蜂':'TAPD'} ${l.status==='failed'?'异常':'正常'}</span>`).join('')}${diagText?`<span class="sync-stat danger sync-error-detail" title="${escapeHTML(diagText)}"><b>诊断</b>${escapeHTML(diagText)}</span>`:''}`;
   const project=currentProject();
-  const githubButton=document.querySelector("#importGitHubIssues");if(githubButton)githubButton.disabled=!!syncing;
+  // POST /api/sync/now and PUT /api/sync/config are platform-wide (every
+  // project's repositories), so only platform admins may use them once login
+  // is required; without login the server lets everyone through.
+  const canSync=!state.authRequired||isPlatformAdmin(),adminOnly=canSync?'':'只有平台管理员可以同步外部工作项或修改同步配置';
+  const githubButton=document.querySelector("#importGitHubIssues");if(githubButton){githubButton.disabled=!!syncing||!canSync;githubButton.title=adminOnly}
+  for(const id of ['#syncAutoEnabledInline','#syncAutoEnabled','#syncInterval','#saveSyncConfig']){const el=$(id);if(el){el.disabled=!canSync;el.title=adminOnly}}
   const repos=(state.data.repositories||[]).filter(r=>r.projectId===state.projectFilter&&r.provider==='github');
   const repoHost=$('#syncGongfengRepos');
   if(repoHost){
@@ -56,7 +61,8 @@ function renderSync(){
   $('#syncAutoEnabledInline').checked=cfg.autoSyncEnabled||false;
   const repoNameOf=id=>{const r=(state.data.repositories||[]).find(x=>x.id===id);return r?r.name:''};
   $('#syncPushIssue').innerHTML=projectIssues.filter(i=>!i.externalRef||i.source==='local').map(i=>{const rn=repoNameOf(i.repositoryId||(i.repositoryIds||[])[0]);return `<option value="${i.id}">${rn?escapeHTML(rn)+' · ':''}${escapeHTML((i.title||'').slice(0,40))}</option>`}).join('')||'<option value="">当前项目暂无可推送项</option>';
-  if(syncing){$('#syncNowBtn').textContent='⟳ 同步中…';$('#syncNowBtn').disabled=true}else{$('#syncNowBtn').textContent='⟳ 立即同步';$('#syncNowBtn').disabled=false}
+  if(syncing){$('#syncNowBtn').textContent='⟳ 同步中…';$('#syncNowBtn').disabled=true}else{$('#syncNowBtn').textContent='⟳ 立即同步';$('#syncNowBtn').disabled=!canSync}
+  $('#syncNowBtn').title=adminOnly;
   $('#syncLogList').innerHTML=scopedLogs.length?scopedLogs.slice(0,20).map(l=>`<div class="sync-log-item"><span class="sync-log-direction ${l.direction}">${l.direction==='pull'?'拉取':'推送'}</span><span class="sync-log-source">${l.source}</span><span class="sync-log-message">${escapeHTML(l.message||l.action)}</span><span class="sync-log-status ${l.status}">${l.status==='success'?'成功':'失败'}</span><span class="sync-log-time">${new Date(l.startedAt).toLocaleTimeString()}</span></div>`).join(''):'<div class="sync-empty">暂无同步记录</div>';
   renderScheduleJobs();
 }
@@ -159,7 +165,7 @@ function bindClarifyModelPicker(host, issue){
 // modal's scroll area cannot clip it, and opens toward the side with room.
 let scheduleCatalog=null;
 function scheduleModelCatalog(){
-  return scheduleCatalog||scheduleModelAPI()?.catalog?.()||{};
+  return scheduleCatalog||{};
 }
 function scheduleEngineModels(engine){
   return (scheduleModelCatalog().models||[]).filter(m=>(m.engine||'codebuddy')===engine);
@@ -179,21 +185,20 @@ function paintScheduleEngines(selected){
   if(!select)return;
   const current=scheduleModelEngine(selected);
   const engines=scheduleModelCatalog().engines||[];
-  const list=engines.filter(engine=>engine.configured||scheduleEngineModels(engine.id).length);
-  if(!list.some(e=>e.id===current)&&(scheduleModelAPI()?.concreteModelId(selected)||$('#scheduleJobForm')?.elements.id.value)){
+  const list=engines.filter(engine=>engine.configured);
+  if(!list.some(e=>e.id===current)&&$('#scheduleJobForm')?.elements.id.value){
     list.push(engines.find(e=>e.id===current)||{id:current,name:current});
   }
-  // CodeBuddy can run on its native default with no concrete model in the
-  // list. A saved task keeps its CLI selectable during edits.
   select.replaceChildren(...list.map(e=>{
-    const usable=e.id===current||(e.id==='codebuddy'&&e.configured)||scheduleEngineModels(e.id).length>0;
-    const option=new Option(usable?e.name:`${e.name}（缺少凭据）`,e.id);
-    option.disabled=!usable;
+    const hasModel=e.id==='codebuddy'||scheduleEngineModels(e.id).length>0;
+    const label=!e.configured?`${e.name}（缺少凭据）`:hasModel?e.name:`${e.name}（暂无可选模型）`;
+    const option=new Option(label,e.id);
+    option.disabled=!e.configured||!hasModel;
     return option;
   }));
   if(!list.length)select.add(new Option('暂无可用执行器',''));
   select.value=list.some(item=>item.id===current)?current:list[0]?.id||'';
-  select.disabled=!list.length;
+  select.disabled=![...select.options].some(option=>option.value&&!option.disabled);
 }
 function closeScheduleModelMenu(){
   const host=$('#scheduleModelPicker');
@@ -261,7 +266,7 @@ async function loadScheduleModels(){
   try{
     catalog=await api('/api/assistant/models?schedule=1'+projectQuery,{silent:true});
   }catch{
-    catalog=await picker.load();
+    catalog={};
   }
   if(version!==scheduleModalVersion||projectId!==state.projectFilter)return;
   scheduleCatalog=catalog;
@@ -286,6 +291,9 @@ function paintScheduleModel(selected){
   const item=catalog.models?.find(model=>model.id===keep);
   if(item)api.paintItem(toggle,item);
   else api.paint(toggle,keep);
+  const engine=scheduleModelEngine(keep);
+  toggle.disabled=!catalog.engines?.some(item=>item.id===engine&&item.configured)||!scheduleEngineModels(engine).length;
+  if(toggle.disabled)closeScheduleModelMenu();
   paintScheduleEngines(keep);
 }
 function syncScheduleJobTiming(){
@@ -406,6 +414,7 @@ async function openScheduleJobModal(kind='dispatch',job){
   if(scheduleModalOpener?.closest('#issueHeadingMenu'))scheduleModalOpener=$('#issueHeadingMore');
   const f=$('#scheduleJobForm');
   f.modelPickerReady=null;
+  scheduleCatalog=null;
   f.inert=false;
   f.querySelector('[type="submit"]').disabled=false;
   if(scheduleEditorKind==='assistant')fillScheduleJobForm(job||{});

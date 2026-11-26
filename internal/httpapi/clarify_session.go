@@ -73,7 +73,8 @@ func canResumeClarifyModelSession(assessment domain.ClarificationAssessment, mod
 	if engine == assistantEngineClaude {
 		return assessment.SessionUserID == userID
 	}
-	return readAgentCLISession(root, engine, sessionID) != ""
+	native, _ := readAgentCLISession(root, engine, sessionID)
+	return native != ""
 }
 
 // CodeBuddy can report a missing resume conversation but still exit with 0.
