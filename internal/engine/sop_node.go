@@ -202,6 +202,9 @@ func (e *Engine) guardSOPCycle(parent domain.Run, childWorkflowID string) error 
 
 func sopChildInput(parent domain.Run, node domain.WorkflowNode) string {
 	input := strings.TrimSpace(parent.Input)
+	if note := strings.TrimSpace(parent.HumanContext); note != "" {
+		input += "\n\n## 人工补充上下文\n\n操作员在审核或重试时补充了以下信息，请优先采信并据此行动：\n\n" + note
+	}
 	prior := ancestors(parent.WorkflowSnapshot, node.ID)
 	var names []string
 	seen := map[string]bool{}

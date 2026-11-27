@@ -141,6 +141,55 @@ func codexHasReasoningEffort(argv []string) bool {
 	return false
 }
 
+// withCodexToolEnvironment lets tool shells inherit only explicitly bound
+// credentials and Git's command-scoped relay. Values stay in the process
+// environment, never in argv or persisted Codex configuration.
+func withCodexToolEnvironment(command CommandSpec, projectEnv map[string]string) CommandSpec {
+	if command.Provider != "codex" || len(command.Argv) < 2 {
+		return command
+	}
+	names := []string{"PATH", "HOME", "USER", "SHELL", "TERM", "LANG", "TMPDIR"}
+	if command.environment[SessionGatewayEnv] != "" || command.environment["GIT_SSH_COMMAND"] != "" {
+		names = append(names,
+			SessionGatewayEnv, GitHostsEnv, workspaceGitBinsEnv,
+			workspaceGitHTTPOriginEnv, workspaceGitHTTPSystemGitEnv,
+			"GIT_CONFIG_COUNT", "GIT_CONFIG_KEY_0", "GIT_CONFIG_VALUE_0",
+			"GIT_CONFIG_KEY_1", "GIT_CONFIG_VALUE_1", "GIT_CONFIG_SYSTEM",
+			"GIT_CONFIG_NOSYSTEM", "GIT_TERMINAL_PROMPT", "GIT_EXEC_PATH",
+		)
+		if command.environment["GIT_SSH_COMMAND"] != "" {
+			names = append(names, "GIT_SSH_COMMAND", "GIT_SSH_VARIANT", "GIT_ALLOW_PROTOCOL", "SSH_AUTH_SOCK")
+		}
+	} else if len(projectEnv) == 0 {
+		return command
+	}
+	for name := range projectEnv {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	quoted := make([]string, 0, len(names))
+	for _, name := range names {
+		quoted = append(quoted, strconv.Quote(name))
+	}
+	args := []string{
+		"-c", `shell_environment_policy.inherit="all"`,
+		"-c", "shell_environment_policy.ignore_default_excludes=true",
+		"-c", "shell_environment_policy.include_only=[" + strings.Join(quoted, ",") + "]",
+	}
+	// Keep exec options before resume, and keep the prompt/stdio marker last.
+	at := len(command.Argv) - 1
+	for i, arg := range command.Argv[:at] {
+		if arg == "resume" {
+			at = i
+			break
+		}
+	}
+	argv := append([]string(nil), command.Argv[:at]...)
+	argv = append(argv, args...)
+	command.Argv = append(argv, command.Argv[at:]...)
+	return command
+}
+
 // withCodexIsolationEnv copies process-sandbox isolation variables into Codex
 // tool subprocesses. inherit=core only keeps PATH/HOME/USER/SHELL/TERM/LANG,
 // so ZDOTDIR never reaches `zsh -lc` unless it is explicitly set here.

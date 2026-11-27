@@ -26,7 +26,7 @@ func WithProjectCredentialEnv(ctx context.Context, env map[string]string) contex
 func projectCommandEnvironment(ctx context.Context, command CommandSpec, profile map[string]string) (CommandSpec, error) {
 	env, _ := ctx.Value(projectCredentialEnvKey{}).(map[string]string)
 	if len(env) == 0 {
-		return command, nil
+		return withCodexToolEnvironment(command, nil), nil
 	}
 	occupied := make(map[string]struct{}, len(profile)+len(command.environment))
 	for name := range profile {
@@ -48,7 +48,7 @@ func projectCommandEnvironment(ctx context.Context, command CommandSpec, profile
 	if command.environment["OTEL_LOG_TOOL_DETAILS"] != "" {
 		command.environment = mergeEnvironmentMaps(command.environment, map[string]string{"OTEL_LOG_TOOL_DETAILS": "0"})
 	}
-	return command, nil
+	return withCodexToolEnvironment(command, env), nil
 }
 
 // projectCredentialRedactor filters command output before it is streamed or

@@ -80,6 +80,11 @@ def check(stage, report):
         repo_ids = unique_ids(repositories, 'repositories')
         service_ids = unique_ids(services, 'services')
         unit_ids = unique_ids(deployables, 'deployables')
+        policy = report.get('deliveryPolicy')
+        code_only = report.get('scope') == 'code_only' or (isinstance(policy, dict) and policy.get('scope') == 'code_only')
+        if code_only:
+            require(report.get('scope') == 'code_only' and isinstance(policy, dict) and policy.get('scope') == 'code_only', 'code_only 方案必须显式声明 scope')
+            require(not deployables, 'code_only 方案不得定义部署单元')
         for item in repositories:
             require(text(item.get('repoPath')) and item.get('access') in ('change', 'read_only') and text(item.get('provider')), '仓库缺 repoPath/access/provider')
             require(text(item.get('baseSha')) and len(item['baseSha']) == 40 and all(c in '0123456789abcdef' for c in item['baseSha']), '仓库 baseSha 必须为实际完整 SHA')
@@ -89,6 +94,8 @@ def check(stage, report):
             require(type(item.get('changeRequired')) is bool and item.get('kind') in ('frontend', 'backend', 'fullstack', 'worker', 'library', 'shell', 'microfrontend'), '服务缺 changeRequired/kind')
             mapped = strings(item.get('deployableIds'), 'deployableIds', allow_empty=True)
             require(set(mapped).issubset(unit_ids), '服务引用了未定义部署单元')
+            if code_only:
+                require(not mapped, 'code_only 服务不得映射部署单元')
             if item.get('repoId'):
                 require(item['repoId'] in repo_ids and text(item.get('path')), '服务缺有效 repoId/path')
             if item['changeRequired']:
@@ -101,9 +108,11 @@ def check(stage, report):
         require(isinstance(report.get('apiContracts'), list) and report.get('changes'), '缺 apiContracts/changes')
         docs = report.get('productDocs', {})
         require(isinstance(docs, dict) and docs.get('repoId') in repo_ids and text(docs.get('requirementKey')), 'productDocs 缺有效仓库及编号')
-        policy = report.get('deliveryPolicy')
         require(isinstance(policy, dict), '交付策略字段必须为 deliveryPolicy')
-        require(policy.get('environment') == 'test' and policy.get('mergeAuthority') == 'sop' and type(policy.get('autoIntegrateDisabled')) is bool and policy.get('maxReworks') == 3 and isinstance(policy.get('isolation'), dict), 'deliveryPolicy 结构无效')
+        if code_only:
+            require(type(policy.get('maxReworks')) is int and policy.get('maxReworks') == 3, 'code_only 方案返工预算必须为 3')
+        else:
+            require(policy.get('environment') == 'test' and policy.get('mergeAuthority') == 'sop' and type(policy.get('autoIntegrateDisabled')) is bool and policy.get('maxReworks') == 3 and isinstance(policy.get('isolation'), dict), 'deliveryPolicy 结构无效')
         if policy.get('provider') == 'docker_compose':
             for item in deployables:
                 if item['action'] == 'regression':

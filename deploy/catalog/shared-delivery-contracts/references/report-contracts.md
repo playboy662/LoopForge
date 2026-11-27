@@ -51,6 +51,8 @@
 | deployables[] | id、serviceIds、action、testUrl、credentialRefs、verification；按 action 和批准的交付方式填写仓库、版本及执行字段。Docker Compose 使用 docker-compose-delivery.md 的字段，CI Job 使用示例中的 CI 字段 |
 | deliveryPolicy | environment、mergeAuthority、autoIntegrateDisabled、mergeAuthorityEvidence、maxReworks、isolation |
 
+代码交付例外：当本轮明确只做代码交付时，技术报告顶层和 `deliveryPolicy` 都必须写 `scope:"code_only"`，`maxReworks` 仍为 3；`deployables` 必须为空，所有 `services[].deployableIds` 必须为空。此模式不要求 environment、mergeAuthority、autoIntegrateDisabled、mergeAuthorityEvidence 或 isolation，也不得为了通过门禁虚构部署证据。仓库读写权限、基线、分支、接口、构建/测试命令和其他实际环境缺项仍须照常核验并记录。
+
 服务定义的标识字段是 **`services[].id`**；用例或部署单元引用它时使用 `serviceIds`。`serviceId` 不能替代服务定义中的 id。仓库路径为 repoPath，服务相对路径为 path；不得替换为 directory。交付策略字段为 deliveryPolicy，不使用 deliveryStrategy。buildCommand、testCommand 是字符串，不是数组。
 
 服务与部署单元的映射必须双向一致。源代码尚不存在的初始化项目，可在已绑定仓库根目录建模 `path:"."`，方案阶段不创建业务代码目录。实际仓库 ID、目录、HEAD、工作分支从运行绑定及 Git 查询读取；示例的名称、地址和 SHA 不能复制为真实值。

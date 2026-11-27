@@ -44,6 +44,69 @@ func TestProjectCredentialEnvironmentRejectsOccupiedNames(t *testing.T) {
 	}
 }
 
+func TestCodexToolEnvironmentScopesCredentialsByName(t *testing.T) {
+	for _, tail := range [][]string{{"task"}, {"resume", "thread-1", "-"}, {"--stdio"}} {
+		command := CommandSpec{
+			Provider: "codex",
+			Argv:     append([]string{"codex", "exec", "-c", `shell_environment_policy.inherit="core"`}, tail...),
+			environment: map[string]string{
+				SessionGatewayEnv:  "http://relay.invalid/private-session",
+				"GIT_CONFIG_COUNT": "2", "GIT_CONFIG_VALUE_1": "!helper git-credential",
+				"CODEX_API_KEY": "fixture-model-secret", "UNSELECTED_TOKEN": "fixture-host-secret",
+			},
+		}
+		ctx := WithProjectCredentialEnv(t.Context(), map[string]string{"SERVICE_PASSWORD": "fixture-project-secret"})
+		bound, err := projectCommandEnvironment(ctx, command, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var only string
+		for _, arg := range bound.Argv {
+			if strings.HasPrefix(arg, "shell_environment_policy.include_only=") {
+				only = strings.TrimPrefix(arg, "shell_environment_policy.include_only=")
+			}
+		}
+		var names []string
+		if err := json.Unmarshal([]byte(only), &names); err != nil {
+			t.Fatalf("missing tool environment allowlist: %v", err)
+		}
+		for _, name := range []string{SessionGatewayEnv, "GIT_CONFIG_COUNT", "GIT_CONFIG_VALUE_1", "GIT_EXEC_PATH", "SERVICE_PASSWORD", "PATH", "HOME"} {
+			if !slices.Contains(names, name) {
+				t.Errorf("tool shell lost selected binding %s", name)
+			}
+		}
+		if slices.Contains(names, "CODEX_API_KEY") || slices.Contains(names, "UNSELECTED_TOKEN") {
+			t.Fatal("tool shell can inherit model or unrelated host credentials")
+		}
+		joined := strings.Join(bound.Argv, " ")
+		for _, value := range []string{"private-session", "fixture-model-secret", "fixture-project-secret", "fixture-host-secret"} {
+			if strings.Contains(joined, value) {
+				t.Fatal("credential value was copied into argv")
+			}
+		}
+		if !slices.Equal(bound.Argv[len(bound.Argv)-len(tail):], tail) || !slices.Equal(command.Argv[len(command.Argv)-len(tail):], tail) {
+			t.Fatal("shell policy changed resume/prompt ordering or mutated input")
+		}
+		gitOnly, err := projectCommandEnvironment(t.Context(), command, nil)
+		if err != nil || !strings.Contains(strings.Join(gitOnly.Argv, " "), "GIT_CONFIG_VALUE_1") || strings.Contains(strings.Join(gitOnly.Argv, " "), "SERVICE_PASSWORD") {
+			t.Fatal("Git relay requires a project credential or inherited an unselected binding")
+		}
+	}
+	ssh := withCodexToolEnvironment(CommandSpec{Provider: "codex", Argv: []string{"codex", "exec", "task"}, environment: map[string]string{"GIT_SSH_COMMAND": "ssh -F bound-config"}}, nil)
+	if !strings.Contains(strings.Join(ssh.Argv, " "), "SSH_AUTH_SOCK") {
+		t.Fatal("Codex tool shell lost the command-bound SSH agent")
+	}
+	for _, command := range []CommandSpec{
+		{Provider: "codex", Argv: []string{"codex", "exec", "task"}},
+		{Provider: "codebuddy", Argv: []string{"codebuddy", "task"}, environment: map[string]string{SessionGatewayEnv: "relay"}},
+	} {
+		bound, err := projectCommandEnvironment(t.Context(), command, nil)
+		if err != nil || !slices.Equal(bound.Argv, command.Argv) {
+			t.Fatal("unbound or non-Codex command changed")
+		}
+	}
+}
+
 func TestLocalProjectCredentialEnvironment(t *testing.T) {
 	t.Setenv("AGENTFLOW_PROJECT_CREDENTIAL_KEY", "platform-test-key")
 	sandbox := &localSandbox{id: "project-credentials", workspace: t.TempDir()}

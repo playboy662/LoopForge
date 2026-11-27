@@ -13,6 +13,60 @@ import (
 	"agentflow/internal/runtime"
 )
 
+func TestSOPChildReceivesParentHumanContext(t *testing.T) {
+	t.Parallel()
+	s, err := repo.OpenTest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	child := domain.WorkflowDefinition{
+		ID: "context-child", Name: "Child", SandboxProfileID: "test-native",
+		Nodes: []domain.WorkflowNode{{ID: "review", Name: "Review", Type: "approval"}},
+	}
+	parent := domain.WorkflowDefinition{
+		ID: "context-parent", Name: "Parent", SandboxProfileID: "test-native",
+		Nodes: []domain.WorkflowNode{
+			{ID: "confirm", Name: "Confirm", Type: "approval"},
+			{ID: "sub", Name: "Sub", Type: "sop", SOPWorkflowID: child.ID, MaxAttempts: 1},
+		},
+		Edges: []domain.WorkflowEdge{{Source: "confirm", Target: "sub", When: "success"}},
+	}
+	for _, wf := range []domain.WorkflowDefinition{child, parent} {
+		if err := s.PutWorkflow(wf); err != nil {
+			t.Fatal(err)
+		}
+	}
+	e := New(s, runtime.NewManagerWithLimit(t.TempDir(), 2))
+	started, err := e.Start(parent.ID, "库位查询演示")
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, s, started.ID, "waiting")
+	note := "编号模糊查询；仅使用独立虚构数据；不新增登录体系。"
+	if err := e.Approve(started.ID, "confirm", note); err != nil {
+		t.Fatal(err)
+	}
+	var childRun domain.Run
+	waitRun(t, s, started.ID, 5*time.Second, func(current domain.Run) bool {
+		if id := current.Nodes["sub"].ChildRunID; id != "" {
+			childRun, _ = s.RunState(id)
+			return childRun.Status == "waiting"
+		}
+		return false
+	})
+	if !strings.Contains(childRun.Input, "库位查询演示") || !strings.Contains(childRun.Input, note) {
+		t.Fatalf("child lost original input or operator clarification: %q", childRun.Input)
+	}
+	grandchildInput := sopChildInput(childRun, domain.WorkflowNode{ID: "nested"})
+	if strings.Count(grandchildInput, note) != 1 {
+		t.Fatalf("nested SOP lost or duplicated clarification: %q", grandchildInput)
+	}
+	if err := e.Cancel(started.ID); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestSOPNodeRunsChildAndHandsOffArtifacts(t *testing.T) {
 	t.Parallel()
 	s, err := repo.OpenTest()
