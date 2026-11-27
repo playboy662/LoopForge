@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"agentflow/internal/domain"
+	"agentflow/internal/repo"
 	"agentflow/internal/runeval"
 
 	"github.com/gin-gonic/gin"
@@ -86,7 +87,7 @@ func (h *runsHandlers) startRunEval(c *gin.Context) {
 		return
 	}
 	if !domain.TerminalRunStatus(run.Status) {
-		c.JSON(http.StatusConflict, map[string]string{"error": "请等 SOP 跑完后再评测"})
+		c.JSON(http.StatusConflict, map[string]string{"error": "请等 LOOP 跑完后再评测"})
 		return
 	}
 	current, loggedIn := h.requestUser(c.Request, true)
@@ -148,6 +149,10 @@ func (h *runsHandlers) getRunEval(c *gin.Context) {
 		return
 	}
 	if rec, ok := h.repo.LatestRunEval(id); ok {
+		c.JSON(http.StatusOK, rec)
+		return
+	}
+	if rec, ok := h.repo.RunEval(repo.SOPDetectionEvalID(id)); ok && rec.Status != domain.RunEvalRunning {
 		c.JSON(http.StatusOK, rec)
 		return
 	}
@@ -364,7 +369,7 @@ func (h *runsHandlers) ensureProjectWorkflow(run domain.Run, projectID, workflow
 		}
 	}
 	if !ok {
-		return domain.WorkflowDefinition{}, fmt.Errorf("SOP %q 不存在", workflowID)
+		return domain.WorkflowDefinition{}, fmt.Errorf("LOOP %q 不存在", workflowID)
 	}
 	if strings.TrimSpace(wf.Name) == "" {
 		wf.Name = firstNonEmpty(wf.ID, "workflow")
@@ -381,8 +386,7 @@ func (h *runsHandlers) ensureProjectWorkflow(run domain.Run, projectID, workflow
 	wf.ProjectID = projectID
 	wf.Generic = false
 	wf.Shared = false
-	wf.Status = "draft"
-	wf.Revision = 0
+	wf.Status, wf.Version, wf.Revision = "draft", 1, 0
 	wf.CreatedAt, wf.UpdatedAt = time.Time{}, time.Time{}
 	if err := h.repo.PutWorkflow(wf); err != nil {
 		return domain.WorkflowDefinition{}, err
@@ -479,7 +483,7 @@ func (h *runsHandlers) runEvalJob(ctx context.Context, job *runEvalJob, rec doma
 		job.publish("error", map[string]string{"error": "评测排队超时"})
 		return
 	}
-	emitRunEvalStage(emit, "collecting", "正在整理本次 SOP 轨迹")
+	emitRunEvalStage(emit, "collecting", "正在整理本次 LOOP 轨迹")
 	exec := currentRunEvalExec()
 	if exec == nil {
 		exec = h.executeRunEval
